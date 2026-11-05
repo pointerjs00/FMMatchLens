@@ -112,6 +112,11 @@ const XgTimeline = lazy(() =>
     default: module.XgTimeline,
   }))
 )
+const AnalysisDrawer = lazy(() =>
+  import("@/features/analysis/AnalysisDrawer").then((module) => ({
+    default: module.AnalysisDrawer,
+  }))
+)
 const SpatialMapPanel = lazy(() =>
   import("@/components/SpatialMapPanel").then((module) => ({
     default: module.SpatialMapPanel,
@@ -193,6 +198,7 @@ export function App() {
   const [spatialMapView, setSpatialMapView] =
     useStoredChoice<SpatialMapView>("spatialMap.view", "heatmap", ["heatmap", "passMap"])
   const [isChromeHidden, setIsChromeHidden] = useState(false)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
   const isTacticalFocusMode = focusedPanel === "tactical"
   const [tacticalEventFilterMode, setTacticalEventFilterMode] =
     useState<TacticalEventFilterMode>("all")
@@ -846,6 +852,8 @@ export function App() {
                   onStartExploreTour={exploreTour.start}
                   showExploreTourHint={exploreTour.showHint}
                   exploreTourActive={exploreTour.active}
+                  analysisOpen={analysisOpen}
+                  onToggleAnalysis={() => setAnalysisOpen((current) => !current)}
                 />
               </Card>
             </motion.div>
@@ -1106,6 +1114,15 @@ export function App() {
           </motion.div>
         </MotionConfig>
       </Suspense>
+      {analysisOpen && (
+        <Suspense fallback={null}>
+          <AnalysisDrawer
+            match={match}
+            open={analysisOpen}
+            onOpenChange={setAnalysisOpen}
+          />
+        </Suspense>
+      )}
       <AnimatePresence>
         {playerDetailsOverlay && playerDetailsPlayer && (
           <PlayerMatchDetailsPopup

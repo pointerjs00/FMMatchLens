@@ -22,11 +22,15 @@ export function ScoreHeader({
   onStartExploreTour,
   showExploreTourHint,
   exploreTourActive,
+  analysisOpen,
+  onToggleAnalysis,
 }: {
   match: MatchSnapshot
   onStartExploreTour: () => void
   showExploreTourHint: boolean
   exploreTourActive: boolean
+  analysisOpen?: boolean
+  onToggleAnalysis?: () => void
 }) {
   const homeColor = match.home.color ?? "var(--team-home-fallback)"
   const awayColor = match.away.color ?? "var(--team-away-fallback)"
@@ -108,6 +112,8 @@ export function ScoreHeader({
           onStartExploreTour={onStartExploreTour}
           showExploreTourHint={showExploreTourHint}
           exploreTourActive={exploreTourActive}
+          analysisOpen={analysisOpen}
+          onToggleAnalysis={onToggleAnalysis}
         />
       </header>
     </TooltipProvider>

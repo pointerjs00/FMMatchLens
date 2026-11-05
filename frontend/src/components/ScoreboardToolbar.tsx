@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Analytics01Icon,
   ArrowShrinkIcon,
   CommandIcon,
   BinocularsIcon,
@@ -32,10 +33,14 @@ export function ScoreboardToolbar({
   onStartExploreTour,
   showExploreTourHint,
   exploreTourActive,
+  analysisOpen,
+  onToggleAnalysis,
 }: {
   onStartExploreTour: () => void
   showExploreTourHint: boolean
   exploreTourActive: boolean
+  analysisOpen?: boolean
+  onToggleAnalysis?: () => void
 }) {
   const { t, i18n } = useTranslation()
   const currentLanguage: SupportedLanguage =
@@ -74,6 +79,21 @@ export function ScoreboardToolbar({
 
   return (
     <div className="flex min-w-0 items-center justify-end gap-2 justify-self-end">
+      {onToggleAnalysis && (
+        <Button
+          type="button"
+          variant={analysisOpen ? "default" : "outline"}
+          size="sm"
+          className="h-8 gap-1.5 px-2.5 active:translate-y-px"
+          aria-pressed={analysisOpen}
+          title="Análise tática"
+          data-analysis-toggle
+          onClick={onToggleAnalysis}
+        >
+          <HugeiconsIcon icon={Analytics01Icon} strokeWidth={1.7} />
+          <span className="text-xs">Análise</span>
+        </Button>
+      )}
       <Button
         type="button"
         variant={exploreTourActive ? "default" : "outline"}

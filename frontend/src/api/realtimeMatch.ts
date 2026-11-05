@@ -1027,7 +1027,7 @@ export function toMatchSnapshot(
   const minute = Math.floor(Math.max(0, clockTick) / 240)
   const second = Math.floor(Math.max(0, clockTick) / 4) % 60
   const playerMetadataBySlot = new Map(
-    metadata?.players.map((player) => [player.slot, player]) ?? []
+    (metadata ? sanitizedPlayerMetadata(metadata.players) : []).map((player) => [player.slot, player])
   )
   const homeClubUid = metadata?.home.clubUid
   const awayClubUid = metadata?.away.clubUid
@@ -1696,7 +1696,7 @@ function toFormationSnapshot(
   metadata: RealtimeMatchMetadata
 ): FormationSnapshot {
   const playerMetadataBySlot = new Map(
-    metadata.players.map((player) => [player.slot, player])
+    sanitizedPlayerMetadata(metadata.players).map((player) => [player.slot, player])
   )
   return {
     tick: Math.max(0, entry.tick),
@@ -1707,11 +1707,7 @@ function toFormationSnapshot(
       return {
         id: uid ?? player.playerId,
         uid,
-        name:
-          details?.shirtName ||
-          details?.commonName ||
-          details?.displayName ||
-          `Player ${player.playerId}`,
+        name: resolvePlayerDisplayName(details, player.playerId),
         fullName:
           `${details?.firstName ?? ""} ${details?.secondName ?? ""}`.trim() ||
           details?.displayName,
@@ -1779,11 +1775,7 @@ function toPlayer(
   return {
     id: uid ?? player.playerId,
     uid,
-    name:
-      metadata?.shirtName ||
-      metadata?.commonName ||
-      metadata?.displayName ||
-      `Player ${player.playerId}`,
+    name: resolvePlayerDisplayName(metadata, player.playerId),
     fullName:
       `${metadata?.firstName ?? ""} ${metadata?.secondName ?? ""}`.trim() ||
       metadata?.displayName,
@@ -1928,4 +1920,74 @@ export function archivedAssetUrl(path: string | undefined) {
 function normalize(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return 50
   return Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100))
+}
+
+function normalizedNameText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]+/g, " ")
+    .trim()
+}
+
+type PlayerNameFields = Pick<
+  RealtimePlayerMetadata,
+  "shirtName" | "firstName" | "secondName" | "commonName" | "displayName"
+>
+
+function shirtNameMatchesPlayer(metadata: PlayerNameFields) {
+  const shirt = normalizedNameText(metadata.shirtName ?? "")
+  if (!shirt) return false
+  const known = [metadata.firstName, metadata.secondName, metadata.commonName, metadata.displayName]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizedNameText)
+    .filter(Boolean)
+  const tokens = new Set(known.flatMap((value) => value.split(" ")))
+  return (
+    known.some((value) => value === shirt || value.includes(shirt)) ||
+    shirt.split(" ").every((token) => tokens.has(token))
+  )
+}
+
+/**
+ * Some game builds read a localized UI string (e.g. "Mensagens", "25:13",
+ * "0 pts") instead of the shirt name, for a whole squad at once. Custom shirt
+ * names that differ from the player's name are legitimate, so the field is
+ * only discarded for a team when most of its shirt names do not match.
+ */
+export function corruptedShirtNameTeams(players: readonly (PlayerNameFields & { team: TeamSide })[]) {
+  const corrupted = new Set<TeamSide>()
+  for (const team of ["home", "away"] as const) {
+    const named = players.filter((player) => player.team === team && player.shirtName?.trim())
+    if (named.length < 5) continue
+    const mismatched = named.filter((player) => !shirtNameMatchesPlayer(player)).length
+    if (mismatched / named.length > 0.5) corrupted.add(team)
+  }
+  return corrupted
+}
+
+const sanitizedMetadataCache = new WeakMap<readonly RealtimePlayerMetadata[], RealtimePlayerMetadata[]>()
+
+export function sanitizedPlayerMetadata(players: readonly RealtimePlayerMetadata[]) {
+  const cached = sanitizedMetadataCache.get(players)
+  if (cached) return cached
+  const corrupted = corruptedShirtNameTeams(players)
+  const result = corrupted.size
+    ? players.map((player) =>
+        corrupted.has(player.team) ? { ...player, shirtName: undefined } : player
+      )
+    : [...players]
+  sanitizedMetadataCache.set(players, result)
+  return result
+}
+
+export function resolvePlayerDisplayName(metadata: PlayerNameFields | undefined, playerId: number) {
+  return (
+    metadata?.shirtName?.trim() ||
+    metadata?.commonName ||
+    metadata?.secondName ||
+    metadata?.displayName ||
+    `Player ${playerId}`
+  )
 }
