@@ -1,0 +1,73 @@
+# FMMatchLens — fork com análise tática
+
+Fork pessoal de [osnsyc/FMMatchLens](https://github.com/osnsyc/FMMatchLens) (plugin BepInEx para Football Manager 27 + dashboard React).
+O objetivo do fork é um **mecanismo de análise tática descritiva**: ao vivo e pós-jogo, dizer o que está a correr bem/mal
+e o que ajustar na tática, nas instruções e nos jogadores. Também agrega vários jogos.
+
+O dono joga FM27 em português (Benfica). Responde e escreve textos de interface em **português de Portugal**.
+
+## Estrutura relevante
+
+- `src/FMMatchLens.Plugin/` — plugin C# (BepInEx 6 IL2CPP). Lê a memória do jogo, expõe API em `127.0.0.1:16726`, grava `.fmlens`.
+- `frontend/` — dashboard React + TypeScript + Vite.
+- `frontend/src/features/analysis/` — **tudo o que é da análise tática**:
+  - `metrics.ts` — métricas por janela (jogo todo / últimos N minutos) a partir de `MatchSnapshot`.
+  - `roles.ts` — atributos (escala), traits, papéis → atributos-chave, nomes PT dos papéis e posições.
+  - `tacticProfile.ts` — instruções de equipa e individuais (o plugin NÃO as lê; são introduzidas no separador "Tática" e guardadas em `localStorage`). Tática por omissão: "teste2".
+  - `engine.ts` — regras que produzem `Insight`s (tom: problem/warning/info/good) e relatórios por jogador.
+  - `multiMatch.ts` — análise de vários `.fmlens` e agregação (padrões recorrentes, médias por jogador).
+  - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).
+- `frontend/tests/analysisPlayerName.test.ts` — testes da correção dos nomes.
+
+## Factos sobre os dados (verificados num jogo real; não "corrigir" sem voltar a verificar)
+
+- Coordenadas de eventos/remates em `MatchSnapshot` vão de 0 a 100. A equipa **da casa ataca para x = 100** e o seu flanco esquerdo
+  está em **y baixo**; a equipa de fora está espelhada. Usar `forwardX`/`lateralY` de `metrics.ts`.
+- 240 ticks por minuto (4 por segundo).
+- Atributos estão na escala interna 1–100; o jogo mostra `round(v / 5)`. Usar `attribute()` de `roles.ts`.
+- Traits vêm como máscara hexadecimal em `attributes.traits`; descodificar com `decodePlayerTraits` (`lib/playerTraits.ts`).
+- Condição física ao vivo: `stats.overallPhysicalCondition` (0–100). Pré-jogo: `profile.condition` (0–10000).
+- Papéis vêm em inglês (`inPossession.role` / `outOfPossession.role`, ex.: "Advanced Playmaker", "Pressing Central Midfielder") e
+  a posição exata em `inPossession.position` (ex.: `MCL`, `DCR`, `DMC`, `AMR`).
+- `positionFamiliarities` está na escala 1–20.
+- Momentum: valor positivo = equipa da casa.
+- **Nomes**: em FM27 o plugin lê `shirtName` como textos da interface ("Mensagens", "25:13", "0 pts") para equipas inteiras.
+  `sanitizedPlayerMetadata` em `api/realtimeMatch.ts` deteta isso por equipa e usa nome comum/apelido. A causa real está no plugin
+  (offset do shirt name) — corrigir lá é uma tarefa em aberto.
+- **Contra-pressão**: no log de eventos do FM as recuperações em ≤ 5 s são raras para ambas as equipas (~8%); usamos 8 s e
+  limites calibrados (bom ≥ 25%, mau < 10%). Os limiares das regras foram afinados com UM jogo — recalibrar com mais `.fmlens`.
+
+## Comandos
+
+```powershell
+cd frontend
+npm ci
+npm run dev          # dashboard em modo de desenvolvimento
+npm run typecheck
+npm run lint
+npx vitest run
+npm run build        # gera frontend/dist (abrir dist/index.html diretamente funciona)
+
+dotnet build src/FMMatchLens.Plugin/FMMatchLens.Plugin.csproj -c Release   # plugin (precisa de src/FMMatchLens.Plugin/lib, ver README)
+```
+
+Se `npm ci` ficar parado: o `package-lock.json` aponta muitos pacotes para `registry.npmmirror.com`. Substituir localmente por
+`https://registry.npmjs.org` resolve (não fazer commit dessa alteração, para não divergir do upstream).
+
+## Regras de trabalho
+
+- Antes de dar uma tarefa como concluída: `npm run typecheck`, `npm run lint`, `npx vitest run` e `npm run build` sem erros.
+- Ao mexer em regras do `engine.ts`, validar com ficheiros `.fmlens` reais (há exemplos em `samples/` se existirem; não fazer commit
+  de `.fmlens` grandes) e confirmar que os números citados no texto batem com os dados.
+- Texto das sugestões: concreto, com o número que o sustenta e a mudança exata a fazer no FM (nome da instrução como aparece no jogo em PT).
+- Não reescrever código do upstream sem necessidade; preferir alterações pequenas e isoladas para facilitar `git merge` de novas versões.
+
+## Próximos passos (roadmap)
+
+1. **Plugin: ler as instruções de equipa ao vivo** (mentalidade, linha, pressão, ritmo, largura…) e as mudanças durante o jogo,
+   para deixar de depender do separador "Tática". Já existe leitura de `PlayerTacticalAssignment` e uma referência a
+   `_instructionOffset` no plugin — começar por aí. Exige o jogo aberto e `Logging.Mode = debug`.
+2. Plugin: corrigir a leitura de `shirtName` em FM27.
+3. Análise de vários jogos diretamente a partir da API do plugin (`/api/archives`), sem escolher ficheiros.
+4. Recalibrar limiares com 10+ jogos; comparar antes/depois de mudanças de instruções no mesmo jogo.
+5. Separar a análise por fase do jogo e por estado do marcador (a ganhar / empatar / perder).
