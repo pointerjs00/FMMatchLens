@@ -35,7 +35,11 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   `sanitizedPlayerMetadata` em `api/realtimeMatch.ts` deteta isso por equipa e usa nome comum/apelido. A causa real está no plugin
   (offset do shirt name) — corrigir lá é uma tarefa em aberto.
 - **Contra-pressão**: no log de eventos do FM as recuperações em ≤ 5 s são raras para ambas as equipas (~8%); usamos 8 s e
-  limites calibrados (bom ≥ 25%, mau < 10%). Os limiares das regras foram afinados com UM jogo — recalibrar com mais `.fmlens`.
+  limites calibrados (bom ≥ 25%, mau < 10%).
+- **Calibração**: os limiares das regras foram recalibrados com 9 jogos (18 atuações, `samples/`, nov.–dez. 2026). Medianas de referência:
+  xG/remate 0,10 · cruzamentos certos 14% · ações ofensivas pelo centro 26% · altura média das ações defensivas 31%
+  (a nossa pressão alta: 33–39%; nunca chega a 40%) · perdas no próprio terço ~8 por jogo com saída curta.
+  Só há dados de UMA tática (teste2); recalibrar quando houver jogos com outras instruções.
 
 ## Comandos
 

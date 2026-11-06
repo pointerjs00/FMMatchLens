@@ -216,8 +216,11 @@ export function analyseMatch(
       })
     }
 
-    if (metrics.shots >= 8 && metrics.xgPerShot < 0.08) {
-      const outside = metrics.shots - metrics.boxShots
+    // Calibrated on 9 FM27 matches (18 team performances): median xG/shot is
+    // 0.10 and even box-heavy games sit at 0.07–0.09, so a low average alone
+    // does not mean "shooting from distance". Require a real share of outside shots.
+    const outside = metrics.shots - metrics.boxShots
+    if (metrics.shots >= 8 && metrics.xgPerShot < 0.08 && outside / metrics.shots >= 0.35) {
       const actions: string[] = []
       if (team.shotsFromDistance !== "less") actions.push(`Mudar ${set("shotsFromDistance", "less")}.`)
       if (team.patience !== "workIntoBox") actions.push(`Mudar ${set("patience", "workIntoBox")}.`)
@@ -288,14 +291,16 @@ export function analyseMatch(
     const narrow = team.attackingWidth === "muchNarrower" || team.attackingWidth === "narrower"
     const blocked = metrics.shots > 0 ? 1 - metrics.shotsOnTarget / metrics.shots : 0
     const blockedShots = ourPlayers.reduce((sum, player) => sum + (player.stats.blockedShots ?? 0), 0)
-    if (narrow && metrics.attackLaneShare.centre >= 0.4 && blockedShots >= 4) {
+    // Lanes are equal thirds: the centre carries 26% of final-half actions in
+    // the median sampled game and 33% at p90, so 33% is already unusual.
+    if (narrow && metrics.attackLaneShare.centre >= 0.33 && blockedShots >= 5) {
       add({
         id: "attack.central-congestion",
         tone: "warning",
         area: "attack",
         title: "O jogo interior está congestionado",
         detail:
-          `Com a largura em "${instructionLabel("attackingWidth", team.attackingWidth)}" metade do teu jogo ofensivo passa pelo corredor central, ` +
+          `Com a largura em "${instructionLabel("attackingWidth", team.attackingWidth)}" ${pct(metrics.attackLaneShare.centre)} do teu jogo ofensivo passa pelo corredor central (o normal ronda 26%), ` +
           `e ${blockedShots} remates foram bloqueados. O adversário está a fechar o meio.`,
         evidence: [
           `Ações ofensivas: ${pct(metrics.attackLaneShare.left)} esq. · ${pct(metrics.attackLaneShare.centre)} centro · ${pct(metrics.attackLaneShare.right)} dir.`,
@@ -309,9 +314,11 @@ export function analyseMatch(
       })
     }
 
-    if (metrics.crossesAttempted >= 12) {
+    // FM27's event log rates few crosses as completed: median 14% across the
+    // sampled games (p25 10%), so 30% flagged every match. Only flag the worst.
+    if (metrics.crossesAttempted >= 15) {
       const rate = metrics.crossesCompleted / metrics.crossesAttempted
-      if (rate < 0.3) {
+      if (rate < 0.1) {
         const crossers = ourPlayers
           .filter((player) => (player.stats.crosses ?? 0) >= 3)
           .sort((a, b) => (b.stats.crosses ?? 0) - (a.stats.crosses ?? 0))
@@ -373,7 +380,9 @@ export function analyseMatch(
     if (team.buildUp === "playThroughPress" || team.goalKicks === "short") {
       const gk = ourPlayers.find((player) => player.isOnPitch && player.inPossession?.position === "GK")
       const centreBacks = ourPlayers.filter((player) => player.isOnPitch && player.inPossession?.position?.startsWith("DC"))
-      if (per90(ownThirdLosses) >= 6 && ownThirdLosses >= 4) {
+      // Short build-up loses the ball in its own third ~8 times per match in
+      // the samples (opponents under our press: 27–51). Flag the clear outliers.
+      if (per90(ownThirdLosses) >= 12 && ownThirdLosses >= 10) {
         const weak = [gk, ...centreBacks]
           .filter((player): player is MatchPlayer => Boolean(player))
           .filter((player) => (attribute(player, "Composure") ?? 20) < 12 || (attribute(player, "Passing") ?? 20) < 12)
@@ -392,7 +401,7 @@ export function analyseMatch(
           ].filter(Boolean),
           priority: 80,
         })
-      } else if (metrics.passesAttempted >= 150 && ownThirdLosses <= 2) {
+      } else if (metrics.passesAttempted >= 150 && per90(ownThirdLosses) <= 4) {
         add({
           id: "build.clean",
           tone: "good",
@@ -505,7 +514,9 @@ export function analyseMatch(
       team.lineOfEngagement === "highPress" || team.triggerPress === "moreOften"
     if (pressing) {
       const highRegains90 = per90(metrics.highRegains)
-      if (highRegains90 >= 8 && (metrics.defensiveActionHeight ?? 50) >= 40) {
+      // Mean height of defensive actions never reached 40% in the samples:
+      // our high press sits at 33–39%, the opponents at 21–30%.
+      if (highRegains90 >= 9 && (metrics.defensiveActionHeight ?? 50) >= 34) {
         add({
           id: "pressing.working",
           tone: "good",
@@ -522,8 +533,8 @@ export function analyseMatch(
         })
       } else if (
         metrics.defensiveActionHeight != null &&
-        metrics.defensiveActionHeight < 40 &&
-        highRegains90 < 8 &&
+        metrics.defensiveActionHeight < 36 &&
+        highRegains90 < 7 &&
         metrics.possessionGained >= 10
       ) {
         const tired = ourPlayers.filter(
@@ -638,7 +649,8 @@ export function analyseMatch(
       (event) => event.type === "yellow_card" && event.team === side &&
         event.minute >= window.fromMinute && event.minute <= window.toMinute
     )
-    if (ourYellows.length >= 3) {
+    // 3 yellows is the median for our side in the samples; 4+ is the top quarter.
+    if (ourYellows.length >= 4) {
       const booked = ourYellows
         .map((event) => ourPlayers.find((player) => player.id === event.playerId))
         .filter((player): player is MatchPlayer => Boolean(player))
@@ -828,7 +840,7 @@ export function analyseMatch(
     defence: clamp(lerpScore(oppXg90, [[0.2, 92], [0.6, 75], [1.1, 55], [1.7, 35], [2.6, 12]])),
     pressing: clamp(
       lerpScore(per90(metrics.highRegains), [[0, 15], [4, 40], [8, 62], [13, 85], [18, 95]]) * 0.6 +
-        lerpScore(metrics.defensiveActionHeight ?? 45, [[30, 15], [40, 40], [48, 60], [56, 85]]) * 0.4
+        lerpScore(metrics.defensiveActionHeight ?? 30, [[22, 15], [27, 40], [33, 60], [39, 85]]) * 0.4
     ),
     transition: clamp(
       lerpScore(
