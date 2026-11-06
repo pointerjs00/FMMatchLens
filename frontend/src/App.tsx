@@ -1120,6 +1120,8 @@ export function App() {
             match={match}
             open={analysisOpen}
             onOpenChange={setAnalysisOpen}
+            apiBase={backendUrl}
+            connectionEnabled={liveConnectionEnabled}
           />
         </Suspense>
       )}

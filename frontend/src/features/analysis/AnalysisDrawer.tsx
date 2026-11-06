@@ -22,10 +22,14 @@ import {
   type MatchAnalysis,
   type PlayerReport,
 } from "@/features/analysis/engine"
+import type { ArchiveSummary } from "@/api/archiveTypes"
 import {
   aggregateMatches,
   analyseArchiveFile,
+  analyseServerArchive,
+  listServerArchives,
   matchLabel,
+  serverArchiveLabel,
   type AnalysedMatch,
 } from "@/features/analysis/multiMatch"
 import { rolePt } from "@/features/analysis/roles"
@@ -77,10 +81,15 @@ export function AnalysisDrawer({
   match,
   open,
   onOpenChange,
+  apiBase,
+  connectionEnabled = false,
 }: {
   match: MatchSnapshot
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Plugin API base URL, e.g. http://127.0.0.1:16726. */
+  apiBase?: string
+  connectionEnabled?: boolean
 }) {
   const [tab, setTab] = useState<TabId>("match")
   const [windowMode, setWindowMode] = useState<WindowMode>("full")
@@ -143,7 +152,9 @@ export function AnalysisDrawer({
             {analysis && tab === "match" && <MatchTab analysis={analysis} />}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} />}
             {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} />}
-            {tab === "season" && <SeasonTab profile={profile} />}
+            {tab === "season" && (
+              <SeasonTab profile={profile} apiBase={apiBase} connectionEnabled={connectionEnabled} />
+            )}
           </div>
         </div>
       </DrawerContent>
@@ -555,26 +566,43 @@ function TacticTab({ profile, onChange }: { profile: TacticProfile; onChange: (p
 
 // ── Season tab ───────────────────────────────────────────────────────────
 
-function SeasonTab({ profile }: { profile: TacticProfile }) {
+type AnalysisJob = { label: string; run: (signal: AbortSignal) => Promise<AnalysedMatch> }
+
+function SeasonTab({
+  profile,
+  apiBase,
+  connectionEnabled,
+}: {
+  profile: TacticProfile
+  apiBase?: string
+  connectionEnabled: boolean
+}) {
   const [matches, setMatches] = useState<AnalysedMatch[]>([])
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [listing, setListing] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
+  const [notice, setNotice] = useState("")
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const aggregate = useMemo(() => aggregateMatches(matches), [matches])
+  const busy = progress != null || listing
+  const canUseApi = connectionEnabled && Boolean(apiBase)
 
-  const load = async (files: File[]) => {
-    const archives = files.filter((file) => file.name.toLowerCase().endsWith(".fmlens"))
-    setProgress({ done: 0, total: archives.length })
-    setErrors([])
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  const runJobs = async (jobs: AnalysisJob[], controller: AbortController) => {
+    setProgress({ done: 0, total: jobs.length })
     const results: AnalysedMatch[] = []
     const failures: string[] = []
-    for (const [index, file] of archives.entries()) {
+    for (const [index, job] of jobs.entries()) {
+      if (controller.signal.aborted) return
       try {
-        results.push(await analyseArchiveFile(file, profile))
+        results.push(await job.run(controller.signal))
       } catch (error) {
-        failures.push(`${file.name}: ${error instanceof Error ? error.message : "erro ao ler"}`)
+        if (controller.signal.aborted) return
+        failures.push(`${job.label}: ${error instanceof Error ? error.message : "erro ao ler"}`)
       }
-      setProgress({ done: index + 1, total: archives.length })
+      setProgress({ done: index + 1, total: jobs.length })
       // Let the browser paint between archives; each one takes a few seconds.
       await new Promise((resolve) => window.setTimeout(resolve, 0))
     }
@@ -585,6 +613,53 @@ function SeasonTab({ profile }: { profile: TacticProfile }) {
     })
     setErrors(failures)
     setProgress(null)
+  }
+
+  const start = () => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    setErrors([])
+    setNotice("")
+    return controller
+  }
+
+  const load = (files: File[]) => {
+    const controller = start()
+    const jobs = files
+      .filter((file) => file.name.toLowerCase().endsWith(".fmlens"))
+      .map((file): AnalysisJob => ({ label: file.name, run: () => analyseArchiveFile(file, profile) }))
+    return runJobs(jobs, controller)
+  }
+
+  const loadFromPlugin = async () => {
+    if (!apiBase) return
+    const controller = start()
+    setListing(true)
+    let archives: ArchiveSummary[]
+    try {
+      archives = await listServerArchives(apiBase, controller.signal)
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setErrors([
+          `Não foi possível ler a lista de jogos do plugin (${apiBase}). O jogo está aberto com o plugin ativo? ` +
+            (error instanceof Error ? error.message : ""),
+        ])
+      return
+    } finally {
+      setListing(false)
+    }
+    if (!archives.length) {
+      setNotice("O plugin ainda não tem jogos terminados gravados.")
+      return
+    }
+    await runJobs(
+      archives.map((archive): AnalysisJob => ({
+        label: serverArchiveLabel(archive),
+        run: (signal) => analyseServerArchive(apiBase, archive, profile, signal),
+      })),
+      controller
+    )
   }
 
   return (
@@ -598,8 +673,8 @@ function SeasonTab({ profile }: { profile: TacticProfile }) {
         }}
       >
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          Seleciona vários ficheiros <code>.fmlens</code> (pasta <code>BepInEx/plugins/FMMatchLens/data/matches</code>)
-          para ver os padrões da tua tática ao longo dos jogos.
+          Carrega todos os jogos gravados pelo plugin, ou seleciona ficheiros <code>.fmlens</code> (pasta{" "}
+          <code>BepInEx/plugins/FMMatchLens/data/matches</code>), para ver os padrões da tua tática ao longo dos jogos.
         </p>
         <input
           ref={inputRef}
@@ -613,17 +688,27 @@ function SeasonTab({ profile }: { profile: TacticProfile }) {
             if (files.length) void load(files)
           }}
         />
-        <div className="mt-3 flex justify-center gap-2">
-          <Button type="button" size="sm" disabled={progress != null} onClick={() => inputRef.current?.click()}>
-            {progress ? `A analisar ${progress.done}/${progress.total}…` : "Escolher jogos"}
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || !canUseApi}
+            title={canUseApi ? `Lê os jogos terminados de ${apiBase}/api/archives` : "Liga a ligação ao plugin para usar esta opção"}
+            onClick={() => void loadFromPlugin()}
+          >
+            {listing ? "A pedir a lista…" : progress ? `A analisar ${progress.done}/${progress.total}…` : "Carregar do plugin"}
           </Button>
-          {matches.length > 0 && progress == null && (
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
+            Escolher ficheiros
+          </Button>
+          {matches.length > 0 && !busy && (
             <Button type="button" size="sm" variant="ghost" onClick={() => setMatches([])}>
               Limpar
             </Button>
           )}
         </div>
       </div>
+      {notice && <p className="text-[11px] text-muted-foreground">{notice}</p>}
       {errors.map((error) => (
         <p key={error} className="text-[11px] text-status-negative">{error}</p>
       ))}

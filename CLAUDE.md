@@ -72,6 +72,7 @@ Se `npm ci` ficar parado: o `package-lock.json` aponta muitos pacotes para `regi
    para deixar de depender do separador "Tática". Já existe leitura de `PlayerTacticalAssignment` e uma referência a
    `_instructionOffset` no plugin — começar por aí. Exige o jogo aberto e `Logging.Mode = debug`.
 2. Plugin: corrigir a leitura de `shirtName` em FM27.
-3. Análise de vários jogos diretamente a partir da API do plugin (`/api/archives`), sem escolher ficheiros.
+3. ~~Análise de vários jogos diretamente a partir da API do plugin~~ — feito: botão "Carregar do plugin" no separador
+   "Vários jogos" (`listServerArchives` / `analyseServerArchive` em `multiMatch.ts`; frames em páginas de 2 400, ~12 s por jogo).
 4. Recalibrar limiares com 10+ jogos; comparar antes/depois de mudanças de instruções no mesmo jogo.
 5. Separar a análise por fase do jogo e por estado do marcador (a ganhar / empatar / perder).

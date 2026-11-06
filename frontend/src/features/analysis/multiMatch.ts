@@ -1,6 +1,9 @@
+import type { ArchivePage, ArchiveSummary } from "@/api/archiveTypes"
 import { parseLocalArchive } from "@/api/localArchive"
+import type { RealtimeFrame, RealtimeMatchMetadata } from "@/api/realtimeMatch"
 import { preprocessReplayArchive } from "@/api/replay/replayPreprocessor"
 import { ReplaySession } from "@/api/replay/replaySession"
+import { observedRatingWeightConfiguration } from "@/lib/ratingCalculator"
 import {
   analyseMatch,
   type Insight,
@@ -22,26 +25,123 @@ export async function analyseArchiveFile(
   profile: TacticProfile
 ): Promise<AnalysedMatch> {
   const parsed = await parseLocalArchive(await file.arrayBuffer(), file.name)
-  const archive = await preprocessReplayArchive({
-    summary: parsed.archive,
-    metadata: parsed.metadata,
-    metadataTimeline: parsed.metadataTimeline,
-    frames: parsed.frames,
-    ratingConfiguration: parsed.ratingConfiguration,
-  })
+  return analysePreparedArchive(
+    {
+      summary: parsed.archive,
+      metadata: parsed.metadata,
+      metadataTimeline: parsed.metadataTimeline,
+      frames: parsed.frames,
+      ratingConfiguration: parsed.ratingConfiguration,
+    },
+    file.name,
+    profile
+  )
+}
+
+type ArchiveInput = Parameters<typeof preprocessReplayArchive>[0]
+
+async function analysePreparedArchive(
+  input: ArchiveInput,
+  fileName: string,
+  profile: TacticProfile
+): Promise<AnalysedMatch> {
+  const archive = await preprocessReplayArchive(input)
   if (archive.frameCount === 0) throw new Error("Arquivo sem frames")
   const session = new ReplaySession(archive, { allowLocalAssets: false })
   try {
     const snapshot = session.advanceTo(archive.frameCount - 1)
     return {
-      key: parsed.archive.matchId || file.name,
-      fileName: file.name,
-      date: parsed.archive.matchDate,
+      // Same key as a dropped file of the same match, so both sources de-duplicate.
+      key: input.summary.matchId || fileName,
+      fileName,
+      date: input.summary.matchDate,
       analysis: analyseMatch(snapshot, profile),
     }
   } finally {
     session.dispose()
   }
+}
+
+// ── Plugin API (/api/archives) ─────────────────────────────────────────────
+
+/**
+ * The plugin clamps `pageSize` to 50. Frames are fetched in pages of 2 400 like
+ * the timeline does: one full match is ~23 000 frames and much larger pages
+ * produce JSON bodies too big to parse in one string.
+ */
+const archiveListPageSize = 50
+const archiveFramePageSize = 2_400
+
+type ArchiveSlice = {
+  archive: ArchiveSummary
+  metadata?: RealtimeMatchMetadata
+  metadataTimeline?: RealtimeMatchMetadata[]
+  frames: readonly RealtimeFrame[]
+}
+
+/** Every finished archive the plugin has saved; the match still being recorded is skipped. */
+export async function listServerArchives(apiBase: string, signal?: AbortSignal) {
+  const archives: ArchiveSummary[] = []
+  for (let page = 0; ; page += 1) {
+    const response = await fetch(
+      `${apiBase}/api/archives?page=${page}&pageSize=${archiveListPageSize}`,
+      { signal }
+    )
+    if (!response.ok) throw new Error(`O plugin respondeu ${response.status} à lista de jogos`)
+    const result = (await response.json()) as ArchivePage
+    archives.push(...result.items)
+    // The server clamps an out-of-range page to the last one; stop there.
+    if (result.page >= result.pageCount - 1 || result.items.length === 0) break
+  }
+  return archives.filter((archive) => archive.ended)
+}
+
+export async function analyseServerArchive(
+  apiBase: string,
+  summary: ArchiveSummary,
+  profile: TacticProfile,
+  signal?: AbortSignal
+): Promise<AnalysedMatch> {
+  const frames: RealtimeFrame[] = []
+  let metadata: RealtimeMatchMetadata | undefined
+  let metadataTimeline: RealtimeMatchMetadata[] = []
+  let latest: ArchiveSummary | undefined
+  let fromTick = 0
+  for (;;) {
+    const response = await fetch(
+      `${apiBase}/api/archives/${encodeURIComponent(summary.matchId)}/frames?fromTick=${fromTick}&stride=1&limit=${archiveFramePageSize}`,
+      { signal }
+    )
+    if (!response.ok) throw new Error(`O plugin respondeu ${response.status}`)
+    const page = (await response.json()) as ArchiveSlice
+    latest = page.archive
+    metadata ??= page.metadata
+    if (!metadataTimeline.length && page.metadataTimeline?.length) metadataTimeline = page.metadataTimeline
+    if (page.frames.length === 0) break
+    frames.push(...page.frames)
+    const lastTick = page.frames.at(-1)?.tick ?? fromTick
+    if (lastTick >= page.archive.lastTick || page.frames.length < archiveFramePageSize) break
+    fromTick = lastTick + 1
+  }
+  const archive = latest ?? summary
+  const fileName = archive.fileName ?? `${archive.matchId}.fmlens`
+  return analysePreparedArchive(
+    {
+      summary: { ...archive, fileName },
+      metadata,
+      metadataTimeline,
+      frames,
+      ratingConfiguration: observedRatingWeightConfiguration,
+    },
+    fileName,
+    profile
+  )
+}
+
+export function serverArchiveLabel(archive: ArchiveSummary) {
+  return archive.homeName && archive.awayName
+    ? `${archive.homeName} ${archive.homeGoals}-${archive.awayGoals} ${archive.awayName}`
+    : (archive.fileName ?? archive.matchId)
 }
 
 export type RecurringInsight = {
