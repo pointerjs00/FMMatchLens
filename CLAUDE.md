@@ -130,8 +130,11 @@ Se `npm ci` ficar parado: o `package-lock.json` aponta muitos pacotes para `regi
    logo após o cartão de feedback com o nome interno da opção ("Backline Depth High") — o plugin grava o par com
    texto vazio + `optionKey`. `CancelPendingTacticalChanges` (1732789369) anula as alterações ainda não aplicadas
    (`cancelled`); `CancelTacticalChanges` (846559841) descarta os passos por confirmar.
-   Falta: jogador das instruções individuais
-   (`DynamicReference`), tática da IA, mais textos do jogo → opção na tabela `gameOptionLabels`.
+   Painel de um jogador: só a página "com bola" traz o nome; a página "sem bola" chega logo a seguir (1–12 s) sem nome
+   e herda-o do registo anterior (`withPanelPlayers`, verificado nos 11 jogadores de um jogo real). Textos sem bola
+   verificados: "Com Mais/Menor Frequência", "Marcar Mais Em Cima", "Desarme Mais Duro". "Corridas de apoio" (FM27 junta
+   sobreposição e desdobramento) ainda não tem correspondência: o texto ("Direito") não diz qual das duas.
+   Falta: tática da IA, mais textos do jogo → opção na tabela `gameOptionLabels`.
 2. Plugin: corrigir a leitura de `shirtName` em FM27.
 3. ~~Análise de vários jogos diretamente a partir da API do plugin~~ — feito: botão "Carregar do plugin" no separador
    "Vários jogos" (`listServerArchives` / `analyseServerArchive` em `multiMatch.ts`; frames em páginas de 2 400, ~12 s por jogo).

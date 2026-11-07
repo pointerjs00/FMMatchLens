@@ -12,6 +12,7 @@ import {
   observedTeamInstructions,
   profileOptionFor,
   uiInstructionOf,
+  withPanelPlayers,
 } from "@/features/analysis/uiTactic"
 
 let sequence = 0
@@ -201,5 +202,56 @@ describe("a player's instructions panel", () => {
     ])
     // "Fazer mais arrancadas" is gone (the panel says Normal); the out-of-possession "pressLess" stays.
     expect(applyObservedPlayerInstructions(profile, observed, players).players.DL).toEqual(["dribbleLess", "pressLess"])
+  })
+})
+
+describe("the out-of-possession page of a player's panel", () => {
+  const record = (sequence: number, ms: number, playerName: string | undefined, pairs: Array<[string, string]>): TacticChange => ({
+    sequence,
+    kind: "uiValues",
+    capturedUnixMilliseconds: ms,
+    tick: 114,
+    displayTick: 114,
+    playerName,
+    uiValues: pairs.map(([icon, label]) => ({ icon, label })),
+  })
+  // As recorded in a real match (Nov 2026): the in-possession page names the player, the next one does not.
+  const raw = [
+    record(1, 1_000, "João Palhinha", [["player-instructions-in-possession-dribbling-frequency-var-less", "Fintar Menos"]]),
+    record(2, 2_017, undefined, [
+      ["player-instructions-out-of-possession-trigger-press-var-standard--null-", "Padrão"],
+      ["player-instructions-out-of-possession-marking-var-tigher", "Marcar Mais Em Cima"],
+      ["player-instructions-out-of-possession-tackling-var-tackle-harder", "Desarme Mais Duro"],
+      ["player-instructions-out-of-possession-marking-target-var-standard", "Padrão"],
+    ]),
+    record(3, 4_000, "Samuel Dahl", [
+      ["player-instructions-in-possession-dribbling-frequency-var-less", "Fintar Menos"],
+      ["in-possession-final-third-cross-strat-var-target-forward", "Avançado Alvo"],
+    ]),
+    record(4, 4_900, undefined, [["player-instructions-out-of-possession-trigger-press-var-less-often", "Com Menor Frequência"]]),
+    // Too late to belong to Dahl's panel.
+    record(5, 200_000, undefined, [["player-instructions-out-of-possession-trigger-press-var-more-often", "Com Mais Frequência"]]),
+  ]
+
+  it("takes the player of the page just before it", () => {
+    expect(withPanelPlayers(raw).map((change) => change.playerName)).toEqual([
+      "João Palhinha",
+      "João Palhinha",
+      "Samuel Dahl",
+      "Samuel Dahl",
+      undefined,
+    ])
+  })
+
+  it("replaces the out-of-possession instructions of the starting tactic", () => {
+    const players = [
+      { id: 1, name: "Palhinha", fullName: "João Palhinha", team: "home", inPossession: { position: "DM" } },
+      { id: 2, name: "Dahl", fullName: "Samuel Dahl", team: "home", inPossession: { position: "DL" } },
+    ] as unknown as MatchPlayer[]
+    const profile = applyObservedPlayerInstructions(defaultTacticProfile, observedPlayerInstructions(raw), players)
+    expect(profile.players.DM).toEqual(expect.arrayContaining<PlayerInstructionTag>(["dribbleLess", "markTighter", "tackleHarder"]))
+    // "Avançado Alvo" has an accent: the game's text and the table's are compared without accents.
+    expect(profile.players.DL).toEqual(expect.arrayContaining<PlayerInstructionTag>(["dribbleLess", "pressLess", "crossToTargetForward"]))
+    expect(profile.players.DL).not.toContain("shootLess")
   })
 })

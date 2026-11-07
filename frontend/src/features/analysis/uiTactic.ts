@@ -72,6 +72,11 @@ const playerInstructionIcons: Array<[prefix: string, title: string]> = [
   ["pi_in_possession-passing-risk", "Risco no passe"],
   ["pi_in_possession-cross-from", "Cruzar de"],
   ["in-possession-final-third-cross-strat", "Tipo de cruzamento (individual)"],
+  // Out of possession (seen in the game, Nov 2026); "marking-target" before "marking", it starts the same.
+  ["player-instructions-out-of-possession-trigger-press", "Frequência de pressão (individual)"],
+  ["player-instructions-out-of-possession-marking-target", "Alvo da marcação"],
+  ["player-instructions-out-of-possession-marking", "Marcação"],
+  ["player-instructions-out-of-possession-tackling", "Desarme (individual)"],
 ]
 
 /**
@@ -189,7 +194,7 @@ const mergeWindowMilliseconds = 8_000
  * are dropped; individual instruction steps get the instruction text of the player panel redraw.
  */
 export function normalizeTacticChanges(all: readonly TacticChange[]): TacticChange[] {
-  const raw = all.filter((change) => !change.cancelled)
+  const raw = withPanelPlayers(all).filter((change) => !change.cancelled)
   // A pick in a detail menu redraws only the icon: name it after the text the same icon had elsewhere.
   const iconLabels = new Map<string, string>()
   for (const change of raw) {
@@ -350,12 +355,19 @@ const playerInstructionTags: Array<[iconPrefix: string, label: string, tag: Play
   ["player-instructions-in-possession-hold-up-ball", "sim", "holdUpBall"],
   ["pi_in_possession-passing-strategy", "mais curtos", "shorterPasses"],
   ["in-possession-final-third-cross-strat", "avançado alvo", "crossToTargetForward"],
+  // Out of possession: seen in the game next to these icons and one English text each in the game's tables
+  // ("Com Mais Frequência" = More Often, "Com Menor Frequência" = Less Often, "Marcar Mais Em Cima" = Mark
+  // Tighter, "Desarme Mais Duro" = Tackle Harder).
+  ["player-instructions-out-of-possession-trigger-press", "com mais frequencia", "pressMore"],
+  ["player-instructions-out-of-possession-trigger-press", "com menor frequencia", "pressLess"],
+  ["player-instructions-out-of-possession-marking", "marcar mais em cima", "markTighter"],
+  ["player-instructions-out-of-possession-tackling", "desarme mais duro", "tackleHarder"],
 ]
 
 /** The analysis tag of a player's instruction option (`uiKey` of a normalized change and the option text). */
 export function playerInstructionTagFor(uiKey: string | undefined, label: string | null | undefined) {
   if (!uiKey || !label) return undefined
-  return playerInstructionTags.find(([prefix, text]) => uiKey.startsWith(prefix) && fold(label) === text)?.[2]
+  return playerInstructionTags.find(([prefix, text]) => uiKey.startsWith(prefix) && fold(label) === fold(text))?.[2]
 }
 
 /** Tags the in-possession panel decides (out-of-possession ones stay as in the "Tática" tab). */
@@ -363,6 +375,36 @@ const inPossessionTags = new Set<PlayerInstructionTag>([
   "dribbleMore", "dribbleLess", "shootMore", "shootLess", "moreRisk", "lessRisk", "moreForwardRuns",
   "fewerForwardRuns", "stayNarrower", "stayWider", "cutInside", "holdUpBall", "shorterPasses", "crossToTargetForward",
 ])
+/** Tags the out-of-possession page of a player's panel decides. */
+const outOfPossessionTags = new Set<PlayerInstructionTag>(["pressMore", "pressLess", "markTighter", "tackleHarder"])
+
+const isOutOfPossessionKey = (key: string) => key.startsWith("player-instructions-out-of-possession")
+
+/**
+ * The plugin names the player only for the in-possession page of his panel; the out-of-possession page (and
+ * clicks on it) comes as the next record without a name. Seen for all 11 players of a match (Nov 2026): it
+ * always follows that player's record, 1 to 12 s later. A nameless player-scope record therefore takes the
+ * name of the record just before it, when that one is a player's panel and at most 60 s older.
+ */
+export function withPanelPlayers(raw: readonly TacticChange[]): TacticChange[] {
+  let previous: TacticChange | undefined
+  return raw.map((change) => {
+    let result = change
+    const pairs = change.uiValues ?? []
+    const playerScope = pairs.length > 0 && pairs.every((pair) => uiInstructionOf(pair.icon).scope === "player")
+    if (
+      change.kind === "uiValues" &&
+      !change.playerName &&
+      playerScope &&
+      previous?.playerName &&
+      change.capturedUnixMilliseconds - previous.capturedUnixMilliseconds <= 60_000
+    ) {
+      result = { ...change, playerName: previous.playerName }
+    }
+    if (change.kind === "uiValues") previous = result
+    return result
+  })
+}
 
 const fold = (text: string) =>
   text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-PT").trim()
@@ -370,7 +412,7 @@ const fold = (text: string) =>
 /** Latest value of each instruction of each player whose panel was drawn (raw changes, before normalizing). */
 export function observedPlayerInstructions(raw: readonly TacticChange[]) {
   const byPlayer = new Map<string, Map<string, { icon: string; label: string }>>()
-  for (const change of raw) {
+  for (const change of withPanelPlayers(raw)) {
     if (change.cancelled || change.kind !== "uiValues" || !change.playerName) continue
     for (const pair of change.uiValues ?? []) {
       if (uiInstructionOf(pair.icon).scope !== "player" || !pair.label) continue
@@ -412,11 +454,16 @@ export function applyObservedPlayerInstructions(
     const slot = findPlayerByGameName(name, players)?.inPossession?.position?.toUpperCase()
     if (!slot) continue
     const read = new Set<PlayerInstructionTag>()
-    for (const [key, { label }] of values) {
-      const tag = playerInstructionTags.find(([prefix, text]) => key.startsWith(prefix) && fold(label) === text)?.[2]
+    const phases = { inPossession: false, outOfPossession: false }
+    for (const [key, { icon, label }] of values) {
+      phases[isOutOfPossessionKey(key) ? "outOfPossession" : "inPossession"] = true
+      const tag = playerInstructionTags.find(([prefix, text]) => icon.startsWith(prefix) && fold(label) === fold(text))?.[2]
       if (tag) read.add(tag)
     }
-    const kept = (result.players[slot] ?? []).filter((tag) => !inPossessionTags.has(tag))
+    // Each page of the panel that was read replaces the "Tática" tab's tags of that phase.
+    const kept = (result.players[slot] ?? []).filter(
+      (tag) => !(phases.inPossession && inPossessionTags.has(tag)) && !(phases.outOfPossession && outOfPossessionTags.has(tag))
+    )
     result.players[slot] = [...read, ...kept]
   }
   return result
