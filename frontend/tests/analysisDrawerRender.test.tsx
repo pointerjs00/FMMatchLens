@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import type { MatchSnapshot } from "@/types/match"
 import { ChangesSummary, ChangesTab, OpponentTab, TacticTab } from "@/features/analysis/AnalysisDrawer"
+import { InstructionScreen } from "@/features/analysis/InstructionScreen"
 import { tacticChangesReport, type TacticChange } from "@/features/analysis/tacticChanges"
 import { defaultTacticProfile } from "@/features/analysis/tacticProfile"
 import { normalizeTacticChanges, observedTeamInstructions } from "@/features/analysis/uiTactic"
@@ -68,7 +69,7 @@ describe("analysis drawer tabs render", () => {
     const html = renderToStaticMarkup(<TacticTab profile={defaultTacticProfile} onChange={() => undefined} observed={observed} />)
     expect(html).toContain("Lido do jogo")
     expect(html.indexOf("Com bola")).toBeLessThan(html.indexOf("Sem bola"))
-    expect(html).toContain("Bloco / linha de pressão:")
+    expect(html).toContain("Linha de Pressão:")
     expect(html).toContain("Editar tática de partida")
     expect(html).toContain("Instruções de equipa")
   })
@@ -109,11 +110,11 @@ describe("opponent tab", () => {
 })
 
 describe("summary of suggested changes", () => {
-  it("lists each change once with its rules and the alternatives it beat", () => {
+  it("lists the non-team changes once with their rules and the alternatives they beat", () => {
     const winner = {
-      key: "team:progressThrough:left",
-      label: "Avançar por: Esquerda",
-      change: { kind: "team" as const, id: "progressThrough" as const, value: "left" },
+      key: "player:7:dribbleMore:true",
+      label: 'Dar "Fintar mais" a Prestianni',
+      change: { kind: "player" as const, tag: "dribbleMore" as const, add: true, playerId: 7 },
       weight: 158,
       sources: [
         { ruleId: "opponent.dribble", ruleTitle: "Prestianni ganha o 1x1", action: "a" },
@@ -126,11 +127,11 @@ describe("summary of suggested changes", () => {
           changes: [winner],
           rejected: [
             {
-              key: "team:progressThrough:right",
-              label: "Avançar por: Direita",
-              change: { kind: "team", id: "progressThrough", value: "right" },
-              weight: 157,
-              sources: [{ ruleId: "opponent.booked", ruleTitle: "Kokolo está amarelado", action: "c" }],
+              key: "player:7:dribbleLess:true",
+              label: 'Dar "Fintar menos" a Prestianni',
+              change: { kind: "player", tag: "dribbleLess", add: true, playerId: 7 },
+              weight: 100,
+              sources: [{ ruleId: "player", ruleTitle: "Perde muitas bolas", action: "c" }],
               lostTo: winner,
             },
           ],
@@ -138,9 +139,36 @@ describe("summary of suggested changes", () => {
         }}
       />
     )
-    expect(html).toContain("Mudanças sugeridas")
+    expect(html).toContain("Mentalidade, jogadores e substituições")
     expect(html).toContain("2 regras: Prestianni ganha o 1x1 · Plano para dar a volta · Explorar o adversário")
     expect(html).toContain("Sugestões que se contradiziam")
-    expect(html).toContain("Avançar por: Direita")
+    expect(html).toContain("Fintar menos")
+  })
+})
+
+describe("instructions screen", () => {
+  it("shows the game's tiles with the change suggested, the confirmed ones and the rest", () => {
+    const change = {
+      key: "team:progressThrough:left",
+      label: "Avançar por: Esquerda",
+      change: { kind: "team" as const, id: "progressThrough" as const, value: "left" },
+      weight: 158,
+      sources: [{ ruleId: "opponent.dribble", ruleTitle: "Prestianni ganha o 1x1 contra De la Cruz", action: "a" }],
+    }
+    const html = renderToStaticMarkup(
+      <InstructionScreen
+        profile={defaultTacticProfile}
+        consolidation={{ changes: [change], rejected: [], notes: new Map() }}
+        keeps={new Map([["tempo", ["Domínio com produção ofensiva"]]])}
+        readFromGame={new Set(["tempo"])}
+      />
+    )
+    expect(html).toContain("Instruções à Equipa")
+    expect(html).toContain("Carácter Directo dos Passes")
+    expect(html).toContain("Apoiar Corridas com Bola")
+    expect(html).toContain("→ Esquerda")
+    expect(html).toContain("Prestianni ganha o 1x1 contra De la Cruz")
+    expect(html).toContain("✓ Domínio com produção ofensiva")
+    expect(html).toContain("1 a mudar")
   })
 })

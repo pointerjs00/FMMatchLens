@@ -54,10 +54,10 @@ describe("reading the panel's suggestions back", () => {
   const match = snapshot(squad)
 
   it("reads team instructions, mentality, individual instructions and substitutions", () => {
-    expect(parseSuggestion("Abrir o campo um nível: Largura ofensiva: Mais estreita.", match, "home")).toEqual([
+    expect(parseSuggestion("Abrir o campo um nível: Largura Atacante: Compacto.", match, "home")).toEqual([
       { kind: "team", id: "attackingWidth", value: "narrower" },
     ])
-    expect(parseSuggestion("Mudar Largura ofensiva: Muito mais estreita.", match, "home")).toEqual([
+    expect(parseSuggestion("Mudar Largura Atacante: Mais Compacto.", match, "home")).toEqual([
       { kind: "team", id: "attackingWidth", value: "muchNarrower" },
     ])
     expect(parseSuggestion("Mentalidade: Positiva → Atacar.", match, "home")).toEqual([{ kind: "mentality", value: "attacking" }])
@@ -99,8 +99,8 @@ describe("matching recorded changes with suggestions", () => {
     const made = changesMade(moment, match, "home")
     expect(made).toEqual([{ kind: "team", id: "attackingWidth", value: "balanced" }])
     const followed = followedSuggestions(moment, made, [
-      suggestion("attack.sterile-possession", "Abrir o campo um nível: Largura ofensiva: Equilibrada."),
-      suggestion("tactic.high-line-slow-cbs", "Contra adversários rápidos, Linha defensiva: Equilibrada."),
+      suggestion("attack.sterile-possession", "Abrir o campo um nível: Largura Atacante: Normal."),
+      suggestion("tactic.high-line-slow-cbs", "Contra adversários rápidos, Linha Defensiva: Normal."),
     ])
     expect(followed.map((item) => item.ruleId)).toEqual(["attack.sterile-possession"])
   })
@@ -239,14 +239,14 @@ describe("one answer per instruction", () => {
   it("merges the same change asked by several rules", () => {
     const result = consolidateSuggestions(
       [
-        suggestion("attack.sterile-possession", "Abrir o campo um nível: Largura ofensiva: Equilibrada.", 275),
-        suggestion("opponent.tendency", "Esticar o bloco: Largura ofensiva: Equilibrada.", 155),
+        suggestion("attack.sterile-possession", "Abrir o campo um nível: Largura Atacante: Normal.", 275),
+        suggestion("opponent.tendency", "Esticar o bloco: Largura Atacante: Normal.", 155),
       ],
       match
     )
     expect(result.changes).toHaveLength(1)
     expect(result.changes[0].sources.map((source) => source.ruleId)).toEqual(["attack.sterile-possession", "opponent.tendency"])
-    expect(result.notes.get("Esticar o bloco: Largura ofensiva: Equilibrada.")).toBe("Também sugerido por: attack.sterile-possession.")
+    expect(result.notes.get("Esticar o bloco: Largura Atacante: Normal.")).toBe("Também sugerido por: attack.sterile-possession.")
   })
 
   it("keeps the strongest of two values for one instruction and of opposite individual instructions", () => {
@@ -270,11 +270,11 @@ describe("one answer per instruction", () => {
   it("losing late, caution gives way to the plan's call for risk", () => {
     const all = [
       suggestion("plan.risk", "Mentalidade: Positiva → Muito Atacante.", 400),
-      suggestion("transition.exposed", "Baixar a linha um nível: Linha defensiva: Equilibrada.", 385),
+      suggestion("transition.exposed", "Baixar a linha um nível: Linha Defensiva: Normal.", 385),
     ]
     expect(consolidateSuggestions(all, match).changes).toHaveLength(2)
     const late = consolidateSuggestions(all, match, { chasingLate: true })
     expect(late.changes.map((item) => item.label)).toEqual(["Mentalidade: Muito Atacante"])
-    expect(late.rejected[0]).toMatchObject({ label: "Linha defensiva: Equilibrada" })
+    expect(late.rejected[0]).toMatchObject({ label: "Linha Defensiva: Normal" })
   })
 })

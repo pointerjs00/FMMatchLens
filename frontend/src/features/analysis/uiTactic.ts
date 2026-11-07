@@ -179,7 +179,10 @@ function optionFromIcon(icon: string) {
 
 export function uiInstructionOf(icon: string): UiInstruction {
   for (const [prefix, title, profileId] of teamInstructionIcons) {
-    if (icon.startsWith(prefix)) return { key: prefix, title, scope: "team", profileId }
+    if (!icon.startsWith(prefix)) continue
+    // The game's own name when the instruction is known.
+    const gameTitle = teamInstructionDefinitions.find((item) => item.id === profileId)?.label
+    return { key: prefix, title: gameTitle ?? title, scope: "team", profileId }
   }
   for (const [prefix, title] of playerInstructionIcons) {
     if (icon.startsWith(prefix)) return { key: prefix, title, scope: "player" }

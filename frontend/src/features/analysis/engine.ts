@@ -26,6 +26,7 @@ import {
   instructionLabel,
   instructionsForSlot,
   playerInstructionLabels,
+  teamInstructionDefinitions,
   type PlayerInstructionTag,
   type TacticProfile,
   type TeamInstructionId,
@@ -334,7 +335,7 @@ export function analyseMatch(
             `${playerLabel(player)} (${player.stats.crossesCompleted ?? 0}/${player.stats.crosses ?? 0}, Cruzamentos ${attribute(player, "Crossing") ?? "?"}): instrução individual "Cruzar menos".`
         )
         if (team.patience === "workIntoBox")
-          actions.push("A instrução \"Trabalhar a bola até à área\" pede o contrário: menos cruzamentos e mais combinações. Os papéis/instruções individuais dos alas estão a sobrepor-se a isso.")
+          actions.push("A instrução \"Paciência: Levar a Bola até à Área\" pede o contrário: menos cruzamentos e mais combinações. Os papéis/instruções individuais dos alas estão a sobrepor-se a isso.")
         if (!aerialStriker && team.crossingStyle !== "low")
           actions.push(`Não tens um avançado forte no ar: ${set("crossingStyle", "low")}.`)
         add({
@@ -609,7 +610,7 @@ export function analyseMatch(
         title: "Exposto quando perdes a bola",
         detail: `${opponent.transitionShots} remates do adversário nasceram até 15 segundos depois de recuperar a bola (${dec(opponent.transitionXg)} xG).`,
         evidence: [
-          highLine ? `Linha defensiva "${instructionLabel("defensiveLine", team.defensiveLine)}"` : "",
+          highLine ? `Linha Defensiva "${instructionLabel("defensiveLine", team.defensiveLine)}"` : "",
           attackingFullBacks.length >= 2 ? `Os dois laterais sobem como alas (${attackingFullBacks.map(playerLabel).join(", ")})` : "",
         ].filter(Boolean),
         actions: [
@@ -942,41 +943,15 @@ function instructionLabelOf(id: TeamInstructionId) {
   return teamInstructionShortLabels[id]
 }
 
-/** "Largura ofensiva: Equilibrada" — the instruction and the option as written in the suggestions. */
+/** "Largura Atacante: Normal" — the instruction and the option as written in the suggestions. */
 export function instructionSetting(id: TeamInstructionId, value: string) {
   return `${instructionLabelOf(id)}: ${instructionLabel(id, value)}`
 }
 
-const teamInstructionShortLabels: Record<TeamInstructionId, string> = {
-  attackingTransition: "Transição ofensiva",
-  attackingWidth: "Largura ofensiva",
-  buildUp: "Estratégia de construção",
-  creativeFreedom: "Liberdade criativa",
-  crossingStyle: "Tipo de cruzamento",
-  dribbling: "Drible",
-  gkDistribution: "Distribuição do GR",
-  gkDistributionSpeed: "Velocidade de distribuição do GR",
-  goalKicks: "Pontapés de baliza",
-  overlap: "Sobreposição",
-  underlap: "Sobreposição interior",
-  passReception: "Receção do passe",
-  passingDirectness: "Tipo de passe",
-  patience: "Paciência",
-  setPieces: "Bolas paradas",
-  progressThrough: "Avançar por",
-  shotsFromDistance: "Remates de longe",
-  tempo: "Ritmo",
-  timeWasting: "Queimar tempo",
-  crossEngagement: "Oposição aos cruzamentos",
-  defensiveLine: "Linha defensiva",
-  defensiveLineBehaviour: "Comportamento da linha",
-  defensiveTransition: "Transição defensiva",
-  lineOfEngagement: "Linha de pressão",
-  pressingTrap: "Armadilha de pressão",
-  shortGkDistribution: "Pressionar saída curta do GR",
-  tackling: "Desarme",
-  triggerPress: "Frequência de pressão",
-}
+/** As the game writes them (same as the "Tática" tab). */
+const teamInstructionShortLabels = Object.fromEntries(
+  teamInstructionDefinitions.map((definition) => [definition.id, definition.label])
+) as Record<TeamInstructionId, string>
 
 // ── Player reports ─────────────────────────────────────────────────────
 

@@ -39,6 +39,9 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   - `consolidateSuggestions` (`suggestions.ts`) — uma resposta por instrução: junta a mesma mudança pedida por várias
     regras, resolve contradições pelo peso (problema > aviso > nota; plano decide risco e substituições) e, a perder a
     partir dos 70', descarta sugestões que baixam o risco. Cartão "Mudanças sugeridas" e notas por baixo de cada ação.
+  - `InstructionScreen.tsx` — réplica do ecrã "Instruções à Equipa" do jogo (mosaicos e ordem de `gameInstructionScreen`
+    em `tacticProfile.ts`): valor atual, "mudar → X" com a regra, "confirmado" (ações "Já tens …: mantém") ou nada.
+    Os nomes das instruções e opções em `teamInstructionDefinitions` são os do jogo (vistos no ecrã ou nas traduções).
   - `gamePlan.ts` — "plano para dar a volta" sempre que a equipa está a perder (leitura xG, risco por minuto, onde o ataque
     encrava, pontos fracos do adversário, substituições pelo encaixe no papel, o que não mexer).
   - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).

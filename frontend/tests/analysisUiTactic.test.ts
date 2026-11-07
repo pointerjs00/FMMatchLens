@@ -150,8 +150,8 @@ describe("picks in an instruction's detail menu and cancelled changes", () => {
   it("ignores cancelled changes and names icon-only picks", () => {
     expect(changes.filter((change) => !change.initial).map((change) => describeTacticChange(change))).toEqual([
       "Ritmo: Mais rápido → Mais lento",
-      "Linha defensiva: Mais avançada → Muito mais avançada",
-      "Largura ofensiva: Mais Compacto → Largura",
+      "Linha Defensiva: Mais avançada → Muito mais avançada",
+      "Largura Atacante: Mais Compacto → Largura",
     ])
     const tactic = applyTacticChanges(defaultTacticProfile, changes)
     expect([tactic.team.tempo, tactic.team.defensiveLine, tactic.team.attackingWidth]).toEqual([

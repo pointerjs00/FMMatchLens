@@ -35,6 +35,7 @@ import {
 } from "@/features/analysis/multiMatch"
 import { rolePt } from "@/features/analysis/roles"
 import {
+  type TeamInstructionId,
   defaultTacticProfile,
   loadTacticProfile,
   mentalityLabels,
@@ -67,8 +68,10 @@ import {
 import { comebackPlan, type GamePlan } from "@/features/analysis/gamePlan"
 import { opponentReport, type Exploit, type OpponentReport } from "@/features/analysis/opponent"
 import { teamPerformance, type PlayerImpact, type TeamPerformance } from "@/features/analysis/playerImpact"
+import { InstructionScreen } from "@/features/analysis/InstructionScreen"
 import {
   changesMade,
+  collectKeeps,
   collectSuggestions,
   consolidateSuggestions,
   followedSuggestions,
@@ -303,6 +306,19 @@ export function AnalysisDrawer({
         : undefined,
     [analysis, sampled, scouting, plan]
   )
+  const keeps = useMemo(
+    () => (analysis ? collectKeeps(analysis, scouting, plan) : new Map<TeamInstructionId, string[]>()),
+    [analysis, scouting, plan]
+  )
+  const readFromGame = useMemo(
+    () =>
+      new Set(
+        observedInstructions
+          .map((item) => item.profileId)
+          .filter((id): id is TeamInstructionId => id != null)
+      ),
+    [observedInstructions]
+  )
   const updateProfile = (next: TacticProfile) => {
     setProfile(next)
     saveTacticProfile(next)
@@ -378,7 +394,21 @@ export function AnalysisDrawer({
             key={tab}
             className="scrollbar-hidden min-h-0 flex-1 animate-in overflow-y-auto fade-in-0 select-text duration-200"
           >
-            {analysis && tab === "match" && <MatchTab analysis={analysis} plan={plan} consolidation={consolidation} />}
+            {analysis && tab === "match" && (
+              <MatchTab
+                analysis={analysis}
+                plan={plan}
+                consolidation={consolidation}
+                screen={
+                  <InstructionScreen
+                    profile={effectiveProfile}
+                    consolidation={consolidation}
+                    keeps={keeps}
+                    readFromGame={readFromGame}
+                  />
+                }
+              />
+            )}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} performance={performance} />}
             {tab === "opponent" && scouting && fullAnalysis && (
               <OpponentTab report={scouting} opponentName={fullAnalysis.opponentName} />
@@ -459,10 +489,13 @@ function MatchTab({
   analysis,
   plan,
   consolidation,
+  screen,
 }: {
   analysis: MatchAnalysis
   plan?: GamePlan
   consolidation?: Consolidation
+  /** The game's team instructions screen with the panel's verdict on each tile. */
+  screen?: ReactNode
 }) {
   const { metrics, opponent } = analysis
   const fixes = analysis.insights.filter((insight) => insight.tone === "problem" || insight.tone === "warning")
@@ -473,7 +506,8 @@ function MatchTab({
   return (
     <div className="space-y-4 p-4">
       {plan && <PlanCard plan={plan} />}
-      {consolidation && consolidation.changes.length > 0 && <ChangesSummary consolidation={consolidation} />}
+      {screen}
+      {consolidation && <ChangesSummary consolidation={consolidation} />}
 
       <p className="text-sm leading-snug font-medium text-foreground">{analysis.headline}</p>
 
@@ -968,13 +1002,16 @@ function PlayerCard({ player }: { player: PlayerReport }) {
 
 /** Every concrete change on screen, once, strongest first; contradicted alternatives below. */
 export function ChangesSummary({ consolidation }: { consolidation: Consolidation }) {
-  const shown = consolidation.changes.slice(0, 8)
+  // Team instructions are on the instructions screen; this lists the rest.
+  const others = consolidation.changes.filter((item) => item.change.kind !== "team")
+  if (others.length === 0 && consolidation.rejected.length === 0) return null
+  const shown = others.slice(0, 8)
   return (
     <details className="group rounded-lg border px-3 py-2" open>
       <summary className="flex cursor-pointer list-none items-baseline gap-2 select-none">
         <span className="mr-0.5 inline-block text-muted-foreground transition-transform group-open:rotate-90">›</span>
-        <span className="flex-1 text-[13px] font-semibold">Mudanças sugeridas</span>
-        <span className="text-[11px] text-muted-foreground tabular-nums">{consolidation.changes.length}</span>
+        <span className="flex-1 text-[13px] font-semibold">Mentalidade, jogadores e substituições</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{others.length}</span>
       </summary>
       <ol className="mt-2 space-y-1.5 text-xs">
         {shown.map((item, index) => (
@@ -990,9 +1027,10 @@ export function ChangesSummary({ consolidation }: { consolidation: Consolidation
           </li>
         ))}
       </ol>
-      {consolidation.changes.length > shown.length && (
+      {others.length === 0 && <p className="mt-2 text-[11px] text-muted-foreground">Nada a mudar fora das instruções de equipa.</p>}
+      {others.length > shown.length && (
         <p className="mt-1.5 text-[10px] text-muted-foreground">
-          E mais {consolidation.changes.length - shown.length} nos cartões abaixo.
+          E mais {others.length - shown.length} nos cartões abaixo.
         </p>
       )}
       {consolidation.rejected.length > 0 && (

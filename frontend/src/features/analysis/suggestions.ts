@@ -588,3 +588,32 @@ export function consolidateSuggestions(
   changes.sort((a, b) => b.weight - a.weight)
   return { changes, rejected, notes }
 }
+
+// ── Instructions the panel backs as they are ─────────────────────────────
+
+/**
+ * Team instructions some rule says to keep ("Já tens Linha de Pressão: Pressão alta: mantém."), with the
+ * rules that say it. Shown as "confirmed" on the instructions screen.
+ */
+export function collectKeeps(
+  analysis: MatchAnalysis,
+  opponent?: OpponentReport,
+  plan?: GamePlan
+): Map<TeamInstructionId, string[]> {
+  const keeps = new Map<TeamInstructionId, string[]>()
+  const scan = (title: string, actions: string[]) => {
+    for (const action of actions) {
+      const kept = /^Já tens (.+): mantém\.$/.exec(action)
+      if (!kept) continue
+      const setting = teamSettings.find((item) => item.pattern.test(kept[1]))
+      if (!setting) continue
+      const titles = keeps.get(setting.id) ?? []
+      if (!titles.includes(title)) titles.push(title)
+      keeps.set(setting.id, titles)
+    }
+  }
+  for (const insight of analysis.insights) scan(insight.title, insight.actions)
+  for (const exploit of [...(opponent?.exploits ?? []), ...(opponent?.tendencies ?? [])]) scan(exploit.title, exploit.actions)
+  for (const step of plan?.steps ?? []) scan(`Plano para dar a volta · ${step.title}`, step.actions)
+  return keeps
+}
