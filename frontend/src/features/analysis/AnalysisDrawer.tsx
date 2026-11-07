@@ -76,6 +76,26 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: "season", label: "Vários jogos" },
 ]
 
+const drawerTabKey = "fmmatchlens.analysis.tab.v1"
+
+/** The last tab used (a per-browser convenience; falls back to "Jogo"). */
+function loadDrawerTab(): TabId {
+  try {
+    const stored = window.localStorage.getItem(drawerTabKey)
+    return tabs.some((item) => item.id === stored) ? (stored as TabId) : "match"
+  } catch {
+    return "match"
+  }
+}
+
+function saveDrawerTab(tab: TabId) {
+  try {
+    window.localStorage.setItem(drawerTabKey, tab)
+  } catch {
+    // Storage unavailable: the tab is simply not remembered.
+  }
+}
+
 /**
  * Live snapshots arrive every 250 ms. The analysis only needs to move with the
  * game clock, so the drawer samples the latest snapshot every couple of seconds
@@ -138,7 +158,11 @@ export function AnalysisDrawer({
   apiBase?: string
   connectionEnabled?: boolean
 }) {
-  const [tab, setTab] = useState<TabId>("match")
+  const [tab, setTabState] = useState<TabId>(loadDrawerTab)
+  const setTab = (next: TabId) => {
+    setTabState(next)
+    saveDrawerTab(next)
+  }
   const [windowMode, setWindowMode] = useState<WindowMode>("full")
   const [profile, setProfile] = useState<TacticProfile>(loadTacticProfile)
   const sampled = useSampledMatch(match, open)
@@ -199,11 +223,29 @@ export function AnalysisDrawer({
           <DrawerHeader className="flex-row items-start gap-3 border-b px-4 py-3">
             <div className="min-w-0 flex-1">
               <DrawerTitle className="text-base font-semibold">Análise tática</DrawerTitle>
-              <DrawerDescription className="text-left">
-                {analysis
-                  ? `${analysis.teamName} ${analysis.goalsFor}-${analysis.goalsAgainst} ${analysis.opponentName} · ${analysis.minute}' · tática "${profile.name}" · ${mentalityLabels[effectiveProfile.mentality]}${tacticChanges ? "" : " (do separador Tática)"}`
-                  : "—"}
+              <DrawerDescription className="text-left text-foreground/90">
+                {analysis ? (
+                  <span className="font-medium tabular-nums">
+                    {analysis.teamName} {analysis.goalsFor}–{analysis.goalsAgainst} {analysis.opponentName}
+                  </span>
+                ) : (
+                  "—"
+                )}
               </DrawerDescription>
+              {analysis && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <HeaderChip label="Minuto" value={`${analysis.minute}'`} />
+                  <HeaderChip label="Tática" value={profile.name} />
+                  <HeaderChip
+                    label="Mentalidade"
+                    value={mentalityLabels[effectiveProfile.mentality]}
+                    hint={tacticChanges ? "detetada no jogo" : "do separador Tática"}
+                  />
+                  {changesReport && changesReport.moments.length > 0 && (
+                    <HeaderChip label="Alterações" value={String(changesReport.moments.length)} />
+                  )}
+                </div>
+              )}
             </div>
             <DrawerClose render={<Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Fechar" />}>
               <span className="text-lg leading-none">×</span>
@@ -211,7 +253,15 @@ export function AnalysisDrawer({
           </DrawerHeader>
 
           <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-            <Segmented value={tab} onChange={setTab} items={tabs} />
+            <Segmented
+              value={tab}
+              onChange={setTab}
+              items={tabs.map((item) =>
+                item.id === "changes" && changesReport?.moments.length
+                  ? { ...item, badge: changesReport.moments.length }
+                  : item
+              )}
+            />
             {(tab === "match" || tab === "players") && (
               <Segmented
                 value={windowMode}
@@ -224,7 +274,10 @@ export function AnalysisDrawer({
             )}
           </div>
 
-          <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto select-text">
+          <div
+            key={tab}
+            className="scrollbar-hidden min-h-0 flex-1 animate-in overflow-y-auto fade-in-0 select-text duration-200"
+          >
             {analysis && tab === "match" && <MatchTab analysis={analysis} />}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} />}
             {tab === "changes" && <ChangesTab report={changesReport} recorded={tacticChanges != null} />}
@@ -246,10 +299,10 @@ function Segmented<T extends string>({
 }: {
   value: T
   onChange: (value: T) => void
-  items: Array<{ id: T; label: string }>
+  items: Array<{ id: T; label: string; badge?: number }>
 }) {
   return (
-    <div className="inline-flex rounded-md bg-muted p-0.5" role="tablist">
+    <div className="inline-flex flex-wrap rounded-md bg-muted p-0.5" role="tablist">
       {items.map((item) => (
         <button
           key={item.id}
@@ -263,9 +316,27 @@ function Segmented<T extends string>({
           )}
         >
           {item.label}
+          {item.badge != null && (
+            <span className="ml-1 rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-primary tabular-nums">
+              {item.badge}
+            </span>
+          )}
         </button>
       ))}
     </div>
+  )
+}
+
+function HeaderChip({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <span
+      className="inline-flex items-baseline gap-1 rounded-md border bg-muted/40 px-2 py-0.5 text-[11px]"
+      title={hint ? `${label}: ${value} (${hint})` : `${label}: ${value}`}
+    >
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
+      {hint && <span className="text-[10px] text-muted-foreground">· {hint}</span>}
+    </span>
   )
 }
 
@@ -406,7 +477,7 @@ function InsightCard({ insight }: { insight: Insight }) {
 
 // ── Changes tab ──────────────────────────────────────────────────────────
 
-function ChangesTab({ report, recorded }: { report?: TacticChangesReport; recorded: boolean }) {
+export function ChangesTab({ report, recorded }: { report?: TacticChangesReport; recorded: boolean }) {
   if (!recorded) {
     return (
       <p className="m-4 rounded-md bg-muted px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -416,54 +487,78 @@ function ChangesTab({ report, recorded }: { report?: TacticChangesReport; record
     )
   }
   const moments = report?.moments ?? []
+  const newestFirst = [...moments].reverse()
   return (
     <div className="space-y-3 p-4">
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Detetadas automaticamente pelo plugin. O FM só aplica uma alteração na paragem de jogo seguinte, por isso a
-        comparação começa no minuto em que foi <span className="font-medium">aplicada</span> e vai até à alteração
-        seguinte (ou até agora). Com menos de {reliableComparisonMinutes} minutos de um dos lados mostram-se totais,
-        sem cores: ainda é cedo para tirar conclusões.
-      </p>
+      <details className="group rounded-md bg-muted/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <summary className="cursor-pointer list-none font-medium text-foreground/80 select-none">
+          <span className="mr-1 inline-block transition-transform group-open:rotate-90">›</span>
+          Como ler esta página
+        </summary>
+        <p className="mt-1.5">
+          Detetadas automaticamente pelo plugin. O FM só aplica uma alteração na paragem de jogo seguinte, por isso a
+          comparação começa no minuto em que foi <span className="font-medium">aplicada</span> e vai até à alteração
+          seguinte (ou até agora). Com menos de {reliableComparisonMinutes} minutos de um dos lados mostram-se totais,
+          sem cores: ainda é cedo para tirar conclusões.
+        </p>
+      </details>
       {moments.length === 0 && <p className="text-[11px] text-muted-foreground">Ainda não houve alterações neste jogo.</p>}
       {report?.overall && (
-        <article className="rounded-lg border border-primary/40 px-3 py-2.5">
-          <h4 className="text-[13px] font-semibold">Efeito do conjunto das alterações</h4>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Desde a primeira alteração aplicada ({report.overall.fromMinute}') até agora, contra o período anterior.
-          </p>
+        <CollapsibleCard
+          className="border-primary/40"
+          defaultOpen
+          title="Efeito do conjunto das alterações"
+          subtitle={`Desde a primeira alteração aplicada (${report.overall.fromMinute}') até agora, contra o período anterior.`}
+          summary={<KeyDeltas comparison={report.overall.comparison} />}
+        >
           <ComparisonTable comparison={report.overall.comparison} />
-        </article>
+        </CollapsibleCard>
       )}
-      {[...moments].reverse().map((moment, index) => (
-        <MomentCard key={`${moment.minute}-${index}`} moment={moment} />
-      ))}
+      {newestFirst.length > 0 && (
+        <ol className="relative space-y-3 border-l border-border pl-4">
+          {newestFirst.map((moment, index) => (
+            <li key={`${moment.minute}-${moment.madeMinute}-${index}`} className="relative">
+              <span
+                className={cn(
+                  "absolute top-3 -left-[21px] size-2.5 rounded-full ring-2 ring-card",
+                  moment.pending ? "bg-status-warning" : "bg-primary"
+                )}
+                aria-hidden
+              />
+              <MomentCard moment={moment} defaultOpen={index === 0} />
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }
 
-function MomentCard({ moment }: { moment: TacticMoment }) {
+function MomentCard({ moment, defaultOpen }: { moment: TacticMoment; defaultOpen: boolean }) {
+  const when = moment.pending
+    ? "aplica-se na próxima paragem"
+    : moment.madeMinute !== moment.minute
+      ? `feita aos ${moment.madeMinute}', aplicada aos ${moment.minute}'`
+      : `feita e aplicada aos ${moment.minute}'`
+  const body = (
+    <ul className="mt-1 space-y-0.5 text-xs">
+      {moment.lines.map((line, index) => (
+        <li key={index} className="flex gap-1.5">
+          <span className="text-primary">→</span>
+          <span>{line}</span>
+        </li>
+      ))}
+    </ul>
+  )
   return (
-    <article className="rounded-lg border px-3 py-2.5">
-      <header className="flex items-baseline justify-between gap-2">
-        <h4 className="text-[13px] font-semibold tabular-nums">
-          {moment.pending ? `${moment.madeMinute}' · pendente` : `${moment.minute}'`}
-        </h4>
-        <span className="text-[10px] text-muted-foreground">
-          {moment.pending
-            ? "aplica-se na próxima paragem"
-            : moment.madeMinute !== moment.minute
-              ? `feita aos ${moment.madeMinute}', aplicada aos ${moment.minute}'`
-              : `feita e aplicada aos ${moment.minute}'`}
-        </span>
-      </header>
-      <ul className="mt-1 space-y-0.5 text-xs">
-        {moment.lines.map((line, index) => (
-          <li key={index} className="flex gap-1.5">
-            <span className="text-primary">→</span>
-            <span>{line}</span>
-          </li>
-        ))}
-      </ul>
+    <CollapsibleCard
+      defaultOpen={defaultOpen}
+      title={<span className="tabular-nums">{moment.pending ? `${moment.madeMinute}' · pendente` : `${moment.minute}'`}</span>}
+      aside={when}
+      lead={body}
+      summary={moment.comparison ? <KeyDeltas comparison={moment.comparison} /> : undefined}
+      expandable={moment.comparison != null}
+    >
       {moment.comparison && <ComparisonTable comparison={moment.comparison} />}
       {moment.tooShortMinutes != null && (
         <p className="mt-1.5 text-[10px] text-muted-foreground">
@@ -471,7 +566,94 @@ function MomentCard({ moment }: { moment: TacticMoment }) {
           ainda não há dados para comparar.
         </p>
       )}
+    </CollapsibleCard>
+  )
+}
+
+/**
+ * A card whose details (the comparison table) open and close; `lead` and the collapsed `summary` stay visible.
+ */
+function CollapsibleCard({
+  title,
+  subtitle,
+  aside,
+  lead,
+  summary,
+  children,
+  defaultOpen = false,
+  expandable = true,
+  className,
+}: {
+  title: ReactNode
+  subtitle?: string
+  aside?: string
+  lead?: ReactNode
+  summary?: ReactNode
+  children?: ReactNode
+  defaultOpen?: boolean
+  expandable?: boolean
+  className?: string
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <article className={cn("rounded-lg border px-3 py-2.5 transition-colors", className)}>
+      <header className="flex items-baseline justify-between gap-2">
+        <h4 className="text-[13px] font-semibold">{title}</h4>
+        {aside && <span className="text-[10px] text-muted-foreground">{aside}</span>}
+      </header>
+      {subtitle && <p className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</p>}
+      {lead}
+      {!open && summary}
+      {expandable ? (
+        <>
+          {open && <div className="animate-in fade-in-0 duration-200">{children}</div>}
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            className="mt-1.5 text-[11px] font-medium text-primary hover:underline"
+          >
+            {open ? "Esconder comparação" : "Ver comparação completa"}
+          </button>
+        </>
+      ) : (
+        children
+      )}
     </article>
+  )
+}
+
+/** The two largest meaningful differences of a comparison, shown when the card is closed. */
+function KeyDeltas({ comparison }: { comparison: TacticComparison }) {
+  const rows = comparison.rows
+    .filter((row) => row.better !== 0)
+    .map((row) => {
+      const scale = Math.max(Math.abs(row.before), Math.abs(row.after), row.format === "pct" ? 0.05 : 0.5)
+      return { row, weight: Math.abs(row.after - row.before) / scale }
+    })
+    .filter(({ row, weight }) => weight > 0.15 && Math.abs(row.after - row.before) > (row.format === "pct" ? 0.03 : 0.05))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 2)
+  if (rows.length === 0) return null
+  const vsOpponent = comparison.mode === "vsOpponent"
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {rows.map(({ row }) => {
+        const good = (row.after - row.before) * row.better > 0
+        return (
+          <span
+            key={row.label}
+            className={cn(
+              "rounded-md border px-1.5 py-0.5 text-[10px] tabular-nums",
+              comparison.reliable && (good ? "border-status-positive/40 text-status-positive" : "border-status-negative/40 text-status-negative")
+            )}
+          >
+            {row.label}: {formatComparisonValue(row, row.before)} → {formatComparisonValue(row, row.after)}
+            {vsOpponent ? " (adv. → nós)" : ""}
+          </span>
+        )
+      })}
+    </div>
   )
 }
 
@@ -621,7 +803,7 @@ function PlayerCard({ player }: { player: PlayerReport }) {
 const slotOptions = ["GK", "DL", "DCL", "DCR", "DC", "DR", "WBL", "WBR", "DM", "DMC", "ML", "MR", "MC", "MCL", "MCR", "AML", "AMR", "AMC", "ST"]
 const allTags = Object.keys(playerInstructionLabels) as PlayerInstructionTag[]
 
-function TacticTab({
+export function TacticTab({
   profile,
   onChange,
   observed,
@@ -652,21 +834,43 @@ function TacticTab({
       </p>
 
       {observed.length > 0 && (
-        <section className="space-y-1.5">
+        <section className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
           <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-            Lido do jogo (prevalece sobre o que está abaixo)
+            Lido do jogo · prevalece sobre a tática de partida
           </h3>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
-            {observed.map((item) => (
-              <div key={item.title} className="flex justify-between gap-2">
-                <span className="text-muted-foreground">{item.title}</span>
-                <span className={cn("font-medium", !item.profileId && "text-muted-foreground")}>{item.label}</span>
+          {(["Com bola", "Sem bola"] as const).map((phase) => {
+            const items = observed.filter((item) => item.phase === phase)
+            if (items.length === 0) return null
+            return (
+              <div key={phase} className="space-y-1">
+                <p className="text-[10px] font-medium text-muted-foreground">{phase}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {items.map((item) => (
+                    <span
+                      key={item.title}
+                      className={cn(
+                        "rounded-md border bg-card px-1.5 py-0.5 text-[11px]",
+                        !item.profileId && "text-muted-foreground"
+                      )}
+                      title={item.profileId ? undefined : "Lido do jogo, mas sem correspondência na análise"}
+                    >
+                      <span className="text-muted-foreground">{item.title}:</span> <span className="font-medium">{item.label}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
+            )
+          })}
         </section>
       )}
 
+      <details open={observed.length === 0} className="group space-y-5">
+        <summary className="cursor-pointer list-none text-[12px] font-semibold select-none">
+          <span className="mr-1 inline-block transition-transform group-open:rotate-90">›</span>
+          Editar tática de partida
+          <span className="ml-1 font-normal text-muted-foreground">(nome, mentalidade, instruções de equipa e individuais)</span>
+        </summary>
+      <div className="mt-3 space-y-5">
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-[11px]">
           <span className="text-muted-foreground">Nome</span>
@@ -794,6 +998,8 @@ function TacticTab({
       <Button type="button" size="sm" variant="ghost" onClick={() => onChange(defaultTacticProfile)}>
         Repor a tática "{defaultTacticProfile.name}"
       </Button>
+      </div>
+      </details>
     </div>
   )
 }

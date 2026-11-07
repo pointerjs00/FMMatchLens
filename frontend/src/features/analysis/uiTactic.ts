@@ -417,10 +417,18 @@ export function applyObservedPlayerInstructions(
 
 /** Latest value drawn for each team instruction (for the "Tática" tab). */
 export function observedTeamInstructions(changes: readonly TacticChange[]) {
-  const latest = new Map<string, { title: string; label: string; profileId?: TeamInstructionId | null }>()
+  const latest = new Map<
+    string,
+    { title: string; label: string; profileId?: TeamInstructionId | null; phase: "Com bola" | "Sem bola" }
+  >()
   for (const change of changes) {
     if (change.source !== "ui" || change.kind !== "teamInstruction" || !change.uiKey || !change.toLabel) continue
-    latest.set(change.uiKey, { title: change.uiTitle ?? change.uiKey, label: change.toLabel, profileId: change.profileInstruction })
+    latest.set(change.uiKey, {
+      title: change.uiTitle ?? change.uiKey,
+      label: change.toLabel,
+      profileId: change.profileInstruction,
+      phase: change.uiKey.includes("out-of-possession") ? "Sem bola" : "Com bola",
+    })
   }
   return [...latest.values()]
 }
