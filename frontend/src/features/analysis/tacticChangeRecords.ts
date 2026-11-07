@@ -7,8 +7,11 @@ import type { TeamInstructionId } from "@/features/analysis/tacticProfile"
 
 export type TacticChangeKind = "mentality" | "teamInstruction" | "playerInstruction" | "swap" | "confirmed" | "uiValues"
 
-/** An instruction as drawn by the game UI (see uiTactic.ts). */
-export type TacticUiValue = { icon: string; label: string }
+/**
+ * An instruction as drawn by the game UI (see uiTactic.ts). After a pick in an instruction's detail menu only
+ * the icon is redrawn: `label` is empty and `optionKey` is the game's internal option name, when seen.
+ */
+export type TacticUiValue = { icon: string; label: string; optionKey?: string | null }
 
 export type TacticChange = {
   sequence: number
@@ -30,6 +33,8 @@ export type TacticChange = {
   /** Levels moved; positive = towards the end of the option list (e.g. faster tempo). */
   steps?: number | null
   stepCount?: number | null
+  /** Discarded in the game ("cancel pending changes") before it was applied. */
+  cancelled?: boolean
   /** Raw instructions drawn by the UI (`uiValues` records). */
   uiValues?: TacticUiValue[] | null
   // Filled by normalizeTacticChanges (uiTactic.ts) for changes derived from the UI text:

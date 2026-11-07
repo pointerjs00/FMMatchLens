@@ -89,7 +89,11 @@ Se `npm ci` ficar parado: o `package-lock.json` aponta muitos pacotes para `regi
    em bruto (`uiValues`; os vistos antes do jogo como `initial`) e `features/analysis/uiTactic.ts` converte-os em valores
    absolutos (tabela ícone → instrução; texto → opção só para textos confirmados). O ícone identifica a instrução; o
    nome da variante nem sempre bate com a opção — o valor vem do texto.
-   Falta: ícones das instruções **sem bola** (ainda não vistos nos logs), jogador das instruções individuais
+   Menu de detalhe de uma instrução: escolher uma opção não envia evento; só redesenha o ícone do mosaico (sem texto),
+   logo após o cartão de feedback com o nome interno da opção ("Backline Depth High") — o plugin grava o par com
+   texto vazio + `optionKey`. `CancelPendingTacticalChanges` (1732789369) anula as alterações ainda não aplicadas
+   (`cancelled`); `CancelTacticalChanges` (846559841) descarta os passos por confirmar.
+   Falta: jogador das instruções individuais
    (`DynamicReference`), tática da IA, mais textos do jogo → opção na tabela `gameOptionLabels`.
 2. Plugin: corrigir a leitura de `shirtName` em FM27.
 3. ~~Análise de vários jogos diretamente a partir da API do plugin~~ — feito: botão "Carregar do plugin" no separador

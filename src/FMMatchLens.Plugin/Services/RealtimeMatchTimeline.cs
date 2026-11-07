@@ -124,6 +124,34 @@ internal sealed class RealtimeMatchTimeline
         }
     }
 
+    /// <summary>
+    /// "Cancel pending changes" in the game discards every change not yet applied by the engine. The mentality
+    /// is left alone: its own display tells when it goes back.
+    /// </summary>
+    public int CancelPendingTacticChanges()
+    {
+        lock (_gate)
+        {
+            if (_matchId is null) return 0;
+            var cancelled = 0;
+            for (var index = 0; index < _tacticChanges.Count; index++)
+            {
+                var change = _tacticChanges[index];
+                // A whole panel drawn is an observation, not a change: only single redraws (a click, a pick) go.
+                if (change.AppliedTick is not null || change.Cancelled || change.Initial ||
+                    change.Kind == TacticChangeKinds.Mentality ||
+                    change.Kind == TacticChangeKinds.UiValues && change.UiValues is not { Count: 1 }) continue;
+                var updated = change with { Cancelled = true };
+                _tacticChanges[index] = updated;
+                _unappliedTacticChanges--;
+                _archives.WriteTacticChange(_matchId, updated);
+                cancelled++;
+            }
+
+            return cancelled;
+        }
+    }
+
     public RealtimeTacticChangeSlice GetTacticChanges()
     {
         lock (_gate)
@@ -154,7 +182,7 @@ internal sealed class RealtimeMatchTimeline
         for (var index = 0; index < _tacticChanges.Count; index++)
         {
             var change = _tacticChanges[index];
-            if (change.AppliedTick is not null || frame.Tick <= change.Tick) continue;
+            if (change.AppliedTick is not null || change.Cancelled || frame.Tick <= change.Tick) continue;
             var applied = change with { AppliedTick = frame.Tick, AppliedDisplayTick = frame.DisplayTick };
             _tacticChanges[index] = applied;
             _unappliedTacticChanges--;

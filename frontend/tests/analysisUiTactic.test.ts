@@ -66,7 +66,8 @@ describe("instructions read from the game UI", () => {
     })
     expect(profileOptionFor("tempo", "Normal")).toBe("balanced")
     expect(profileOptionFor("passReception", "Passar para o espaço")).toBe("space")
-    expect(profileOptionFor("attackingWidth", "Mais Compacto")).toBeUndefined()
+    expect(profileOptionFor("attackingWidth", "Mais Compacto")).toBe("muchNarrower")
+    expect(profileOptionFor("attackingWidth", "Sem tradução")).toBeUndefined()
   })
 
   it("turns the panel and the quick-change clicks into absolute changes", () => {
@@ -109,5 +110,49 @@ describe("instructions read from the game UI", () => {
       "Ritmo: Muito mais elevado → Normal",
     ])
     expect(applyTacticChanges(defaultTacticProfile, changes.slice(0, 3)).team.tempo).toBe("muchHigher")
+  })
+})
+
+describe("picks in an instruction's detail menu and cancelled changes", () => {
+  // Test of 7 Nov 2026 (00:54–00:57): quick +1 on tempo then "cancel pending changes", then picks in the
+  // detail menus of tempo (no option name), defensive line and attacking width; only tempo was drawn again.
+  const width = (variant: string) => `in-possession-team-width-var-${variant}`
+  const line = (variant: string) => `team-instructions-out-of-possession-overview-defensive-line-var-${variant}`
+  const at = (minute: number, seconds: number, ...values: Array<[string, string, string?]>) => ({
+    ...record(seconds, "uiValues", {
+      uiValues: values.map(([label, icon, optionKey]) => ({ label, icon, optionKey: optionKey ?? null })),
+    }),
+    displayTick: minute * 240,
+  })
+  const changes = normalizeTacticChanges([
+    at(0, 4, ["Mais rápido", tempo("higher")], ["Mais Compacto", width("much-more-narrow")]),
+    { ...at(1, 8, ["Muito mais elevado", tempo("much-higher")]), cancelled: true },
+    { ...record(9, "teamInstruction", { instruction: 21, steps: 1 }), displayTick: 240, cancelled: true },
+    at(2, 48, ["Mais rápido", tempo("higher")], ["Mais Compacto", width("much-more-narrow")]),
+    at(2, 52, ["", tempo("lower")]),
+    at(3, 73, ["Mais lento", tempo("lower")], ["Mais Compacto", width("much-more-narrow")]),
+    at(4, 76, ["Mais avançada", line("higher")]),
+    at(4, 78, ["", line("much-higher"), "Backline Depth High"]),
+    at(6, 121, ["", width("more-direct"), "Attacking Width Wide"]),
+  ])
+
+  it("ignores cancelled changes and names icon-only picks", () => {
+    expect(changes.filter((change) => !change.initial).map((change) => describeTacticChange(change))).toEqual([
+      "Ritmo: Mais rápido → Mais lento",
+      "Linha defensiva: Mais avançada → Muito mais avançada",
+      "Largura ofensiva: Mais Compacto → Largura",
+    ])
+    const tactic = applyTacticChanges(defaultTacticProfile, changes)
+    expect([tactic.team.tempo, tactic.team.defensiveLine, tactic.team.attackingWidth]).toEqual([
+      "lower",
+      "muchHigher",
+      "wider",
+    ])
+  })
+
+  it("times a pick when it is made, not when the panel is drawn again", () => {
+    const tempoChange = changes.find((change) => change.uiKey === "in-possession-tempo" && !change.initial)
+    expect(tempoChange?.displayTick).toBe(2 * 240)
+    expect(tempoChange?.uiSinceDisplayTick).toBeUndefined()
   })
 })

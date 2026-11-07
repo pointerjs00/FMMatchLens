@@ -79,8 +79,14 @@ const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>
     "Mais lento": "lower",
     Normal: "balanced",
     "Mais rápido": "higher",
-    "Muito mais rápido": "muchHigher",
     "Muito mais elevado": "muchHigher",
+  },
+  attackingWidth: {
+    "Mais Compacto": "muchNarrower",
+    Compacto: "narrower",
+    Normal: "balanced",
+    Largura: "wider",
+    "Maior Largura": "muchWider",
   },
   tackling: { Normal: "standard" },
   defensiveTransition: { "Contra-Pressão": "counterPress", Reagrupar: "regroup" },
@@ -89,6 +95,7 @@ const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>
   defensiveLine: {
     "Muito mais recuada": "muchLower",
     "Mais recuada": "lower",
+    Normal: "balanced",
     "Mais avançada": "higher",
     "Muito mais avançada": "muchHigher",
   },
@@ -104,6 +111,23 @@ const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>
 }
 
 const neutralLabels = new Set(["equilibrado", "equilibrada", "normal", "padrão"])
+
+/**
+ * The game's internal option names (feedback card of a detail menu) → option text in PT, where seen.
+ * Used when a pick in a detail menu is not followed by a redraw with the text.
+ */
+const optionKeyLabels: Record<string, string> = {
+  "Attacking Width Very Narrow": "Mais Compacto",
+  "Attacking Width Wide": "Largura",
+  "Backline Depth Higher": "Mais avançada",
+  "Backline Depth High": "Muito mais avançada",
+}
+
+/** Last resort name for an icon-only value: its variant part ("much-higher" → "much higher"). */
+function optionFromIcon(icon: string) {
+  const variant = icon.split(/-var-|-variation-|-type-|-Property-/)[1]
+  return variant ? variant.replace(/[-_]+/g, " ").trim() : icon
+}
 
 export function uiInstructionOf(icon: string): UiInstruction {
   for (const [prefix, title, profileId] of teamInstructionIcons) {
@@ -142,9 +166,18 @@ const mergeWindowMilliseconds = 8_000
  * few seconds apart merge into one). Step records and unidentified confirmations explained by a UI change
  * are dropped; individual instruction steps get the instruction text of the player panel redraw.
  */
-export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChange[] {
+export function normalizeTacticChanges(all: readonly TacticChange[]): TacticChange[] {
+  const raw = all.filter((change) => !change.cancelled)
+  // A pick in a detail menu redraws only the icon: name it after the text the same icon had elsewhere.
+  const iconLabels = new Map<string, string>()
+  for (const change of raw) {
+    for (const pair of change.uiValues ?? []) if (pair.label) iconLabels.set(pair.icon, pair.label)
+  }
   const out: TacticChange[] = []
   const state = new Map<string, string>()
+  const stateIcons = new Map<string, string>()
+  const stateNamed = new Map<string, boolean>()
+  const unnamedChanges = new Map<string, TacticChange>()
   const lastChangeAt = new Map<string, number>()
   const playerValues = new Map<string, string>()
   const lastSeenDisplayTick = new Map<string, number>()
@@ -158,7 +191,10 @@ export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChan
     const pairs = change.uiValues ?? []
     // A single player instruction drawn on its own is the redraw after a click on it.
     const playerClick = pairs.length === 1 && uiInstructionOf(pairs[0].icon).scope === "player"
-    for (const pair of pairs) {
+    for (const drawn of pairs) {
+      const resolved =
+        drawn.label || iconLabels.get(drawn.icon) || (drawn.optionKey ? optionKeyLabels[drawn.optionKey] : "") || ""
+      const pair = { ...drawn, label: resolved || drawn.optionKey || optionFromIcon(drawn.icon) }
       const instruction = uiInstructionOf(pair.icon)
       if (instruction.scope === "player") {
         const previous = playerValues.get(instruction.key)
@@ -178,10 +214,31 @@ export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChan
       }
 
       const previous = state.get(instruction.key)
+      const previousIcon = stateIcons.get(instruction.key)
+      const previousNamed = stateNamed.get(instruction.key) ?? true
       const seenBefore = lastSeenDisplayTick.get(instruction.key)
+      // A value known only by its icon is the same option when the icon is the same.
+      const unnamed = !resolved || !previousNamed
+      if (previous != null && (previous === pair.label || (unnamed && previousIcon === pair.icon))) {
+        if (resolved) {
+          state.set(instruction.key, pair.label)
+          stateNamed.set(instruction.key, true)
+          // The text arrived later: name the change made with only the icon.
+          const unnamedChange = unnamedChanges.get(instruction.key)
+          if (unnamedChange && !previousNamed) {
+            const at = out.indexOf(unnamedChange)
+            if (at >= 0) out[at] = { ...unnamedChange, toLabel: pair.label }
+          }
+          unnamedChanges.delete(instruction.key)
+        }
+        stateIcons.set(instruction.key, pair.icon)
+        lastSeenDisplayTick.set(instruction.key, change.displayTick)
+        continue
+      }
       state.set(instruction.key, pair.label)
+      stateNamed.set(instruction.key, !!resolved)
+      stateIcons.set(instruction.key, pair.icon)
       lastSeenDisplayTick.set(instruction.key, change.displayTick)
-      if (previous === pair.label) continue
       const click = pairs.length === 1
       const base = {
         ...change,
@@ -221,6 +278,7 @@ export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChan
       const next = { ...base, initial: false, fromLabel: previous, uiSinceDisplayTick: click ? undefined : seenBefore }
       out.push(next)
       if (click) clicks.add(next)
+      if (!resolved) unnamedChanges.set(instruction.key, next)
     }
   }
   return dropExplained(out).sort((a, b) => a.sequence - b.sequence)

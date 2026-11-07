@@ -36,6 +36,8 @@ internal static class TacticChangeTracker
     private const uint ConfirmTacticalChanges = 1937405795;
     private const uint ModifyPendingTacticalChanges = 1865641760;
     private const uint TacticsScreenClosed = 1953719148;
+    private const uint CancelTacticalChanges = 846559841;
+    private const uint CancelPendingTacticalChanges = 1732789369;
     private const int MaxRequestsScanned = 400;
     private const long ConfirmDisplayWindowMilliseconds = 2_000;
 
@@ -226,12 +228,34 @@ internal static class TacticChangeTracker
                 case TacticsScreenClosed:
                     lock (Gate) CommitPendingSteps();
                     break;
+                case CancelTacticalChanges:
+                    // Leaving the tactics screen with "cancel": its unconfirmed steps never happened.
+                    lock (Gate) DiscardPendingSteps();
+                    break;
+                case CancelPendingTacticalChanges:
+                    lock (Gate)
+                    {
+                        DiscardPendingSteps();
+                        var cancelled = _timeline?.CancelPendingTacticChanges() ?? 0;
+                        LogInfo($"Tactic tracking: pending changes cancelled in game ({cancelled} discarded).");
+                    }
+
+                    break;
             }
         }
         catch (Exception ex)
         {
             Fail("SendEvent", ex);
         }
+    }
+
+    private static void DiscardPendingSteps()
+    {
+        PendingTeamSteps.Clear();
+        _pendingPlayerSteps = 0;
+        _pendingPlayerStepCount = 0;
+        _lastStepTimestamp = 0;
+        _unexplainedConfirm = false;
     }
 
     /// <summary>Records the quick-change steps made since the last commit. Returns whether anything was recorded.</summary>
@@ -351,7 +375,8 @@ internal static class TacticChangeTracker
 
     private static bool IsTacticEvent(uint id) => id is SwapPlayers or QuickChangeTacticInstructionIncrement
         or QuickChangeTacticInstructionDecrement or QuickChangePlayerInstructionIncrement or QuickChangePlayerInstructionDecrement
-        or ConfirmTacticalChanges or ModifyPendingTacticalChanges or TacticsScreenClosed;
+        or ConfirmTacticalChanges or ModifyPendingTacticalChanges or TacticsScreenClosed or CancelTacticalChanges
+        or CancelPendingTacticalChanges;
 
     private static TacticChange? Record(TacticChange draft, bool atKickOff = false)
     {
@@ -362,7 +387,8 @@ internal static class TacticChangeTracker
                               (change.Mentality is { } mentality ? $" mentality={mentality} ({change.MentalityName})" : "") +
                               (change.Instruction is { } instruction ? $" instruction={instruction} ({change.InstructionName})" : "") +
                               (change.Steps is { } steps ? $" steps={steps}" : "") +
-                              (change.UiValues is { Count: > 0 } ui ? $" ui={string.Join(", ", ui.Select(pair => $"{pair.Label} [{pair.Icon}]"))}" : "") +
+                              (change.UiValues is { Count: > 0 } ui ? $" ui={string.Join(", ", ui.Select(pair => $"{pair.Label}{(pair.OptionKey is null ? "" : $" <{pair.OptionKey}>")} [{pair.Icon}]"))}" : "") +
+                              (change.Cancelled ? " cancelled" : "") +
                               (change.Initial ? " initial" : ""));
         }
         else
@@ -405,6 +431,7 @@ internal static class TacticChangeTracker
     /// </summary>
     private static void ObserveUiValues(IReadOnlyList<string?> values)
     {
+        RememberFeedbackKey(values);
         List<TacticUiValue>? pairs = null;
         for (var index = 1; index < values.Count; index++)
         {
@@ -412,8 +439,17 @@ internal static class TacticChangeTracker
             if (icon is null || !icon.StartsWith(IconPrefix, StringComparison.Ordinal) ||
                 icon.Contains("player_role", StringComparison.Ordinal)) continue;
             var label = values[index - 1];
-            if (!IsUiLabel(label)) continue;
-            (pairs ??= new List<TacticUiValue>()).Add(new TacticUiValue(icon[IconPrefix.Length..], label!));
+            if (IsUiLabel(label))
+            {
+                (pairs ??= new List<TacticUiValue>()).Add(new TacticUiValue(icon[IconPrefix.Length..], label!));
+            }
+            else if (values.Count <= 10)
+            {
+                // A pick in an instruction's detail menu: only the tile icon is redrawn, right after the
+                // feedback card of the chosen option.
+                var key = Now() - _feedbackTimestamp <= 1_500 ? _feedbackKey : null;
+                (pairs ??= new List<TacticUiValue>()).Add(new TacticUiValue(icon[IconPrefix.Length..], "", key));
+            }
         }
 
         if (pairs is null) return;
@@ -423,14 +459,30 @@ internal static class TacticChangeTracker
             return;
         }
 
-        var signature = string.Join("|", pairs.Select(pair => $"{pair.Icon}={pair.Label}"));
+        var signature = string.Join("|", pairs.Select(pair => $"{pair.Icon}={pair.Label}{pair.OptionKey}"));
         if (signature == _lastUiSignature) return; // the same panel redrawn
         _lastUiSignature = signature;
         Record(Draft(TacticChangeKinds.UiValues) with { UiValues = pairs });
     }
 
+    private static string? _feedbackKey;
+    private static long _feedbackTimestamp;
+
+    /// <summary>
+    /// The feedback card of an option starts with the instruction id twice and the game's internal option name
+    /// ("Attacking Width Wide"), then the description.
+    /// </summary>
+    private static void RememberFeedbackKey(IReadOnlyList<string?> values)
+    {
+        if (values.Count < 5 || values[0] is not { Length: > 0 } id || values[1] != id || !id.All(char.IsDigit)) return;
+        if (values[2] is not { Length: > 3 } key || !char.IsUpper(key[0]) || !key.Contains(' ') ||
+            !key.All(character => character is ' ' or (>= 'A' and <= 'Z') or (>= 'a' and <= 'z'))) return;
+        _feedbackKey = key;
+        _feedbackTimestamp = Math.Max(1, Now());
+    }
+
     private static bool IsUiLabel(string? text) =>
-        !string.IsNullOrWhiteSpace(text) && text.Length <= 80 &&
+        !string.IsNullOrWhiteSpace(text) && text.Length <= 80 && text != "null" &&
         !text.StartsWith(IconPrefix, StringComparison.Ordinal) &&
         !text.StartsWith("FM.", StringComparison.Ordinal) &&
         !text.StartsWith("SI.", StringComparison.Ordinal) &&

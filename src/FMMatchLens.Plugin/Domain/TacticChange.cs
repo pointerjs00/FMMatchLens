@@ -20,6 +20,8 @@ namespace FMMatchLens.Plugin.Domain;
 /// instructions), raw; <see cref="Initial"/> = seen before kick-off. Interpreted by the dashboard.</item>
 /// </list>
 ///
+/// <see cref="Cancelled"/>: discarded with "cancel pending changes" before it was applied.
+///
 /// The match engine only applies a change at the next stoppage; <see cref="AppliedTick"/> is the first
 /// captured tick after the change with the ball out of play or standing still.
 /// </summary>
@@ -39,14 +41,20 @@ internal sealed record TacticChange(
     string? InstructionName = null,
     int? Steps = null,
     int? StepCount = null,
-    IReadOnlyList<TacticUiValue>? UiValues = null);
+    IReadOnlyList<TacticUiValue>? UiValues = null,
+    bool Cancelled = false);
 
 /// <summary>
 /// An instruction as drawn by the game UI: the option text in the game language and the icon id
 /// (without the <c>tactic_icons-</c> prefix), which names the instruction, e.g. "Mais rápido" /
 /// <c>in-possession-tempo-var-higher</c>. Icon variant names do not always match the option; the text does.
 /// </summary>
-internal sealed record TacticUiValue(string Icon, string Label);
+/// <remarks>
+/// After a pick in an instruction's detail menu only the icon is redrawn (<see cref="Label"/> empty); the
+/// option is then named by <see cref="OptionKey"/>, the game's internal option name shown on the feedback card
+/// a few milliseconds before (e.g. "Attacking Width Wide", "Backline Depth High").
+/// </remarks>
+internal sealed record TacticUiValue(string Icon, string Label, string? OptionKey = null);
 
 internal static class TacticChangeKinds
 {
