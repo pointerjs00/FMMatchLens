@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import type { MatchSnapshot } from "@/types/match"
-import { ChangesTab, TacticTab } from "@/features/analysis/AnalysisDrawer"
+import { ChangesTab, OpponentTab, TacticTab } from "@/features/analysis/AnalysisDrawer"
 import { tacticChangesReport, type TacticChange } from "@/features/analysis/tacticChanges"
 import { defaultTacticProfile } from "@/features/analysis/tacticProfile"
 import { normalizeTacticChanges, observedTeamInstructions } from "@/features/analysis/uiTactic"
@@ -71,5 +71,36 @@ describe("analysis drawer tabs render", () => {
     expect(html).toContain("Bloco / linha de pressão:")
     expect(html).toContain("Editar tática de partida")
     expect(html).toContain("Instruções de equipa")
+  })
+})
+
+describe("opponent tab", () => {
+  it("renders weaknesses, team habits and the opponent's players", () => {
+    const html = renderToStaticMarkup(
+      <OpponentTab
+        opponentName="Nacional"
+        report={{
+          performance: { side: "away", players: [], best: [], worst: [] },
+          exploits: [
+            {
+              id: "pace.1.2",
+              tone: "good",
+              title: "Durán é bem mais rápido do que Zé Vitor",
+              detail: "Bolas nas costas dele.",
+              evidence: ["Durán: Velocidade 16"],
+              actions: ["Dar \"Fazer mais arrancadas\" a Durán."],
+              weight: 8,
+              ourPlayerIds: [1],
+              theirPlayerIds: [2],
+            },
+          ],
+          tendencies: [],
+        }}
+      />
+    )
+    expect(html).toContain("Pontos fracos a explorar")
+    expect(html).toContain("Durán é bem mais rápido do que Zé Vitor")
+    expect(html).toContain("Como o Nacional está a jogar")
+    expect(html).toContain("aparece a partir dos 15 minutos")
   })
 })

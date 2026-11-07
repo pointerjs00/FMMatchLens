@@ -64,13 +64,17 @@ import {
   type TacticComparison,
   type TacticMoment,
 } from "@/features/analysis/tacticChanges"
+import { comebackPlan, type GamePlan } from "@/features/analysis/gamePlan"
+import { opponentReport, type Exploit, type OpponentReport } from "@/features/analysis/opponent"
+import { teamPerformance, type PlayerImpact, type TeamPerformance } from "@/features/analysis/playerImpact"
 
-type TabId = "match" | "players" | "changes" | "tactic" | "season"
+type TabId = "match" | "players" | "opponent" | "changes" | "tactic" | "season"
 type WindowMode = "full" | "recent"
 
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: "match", label: "Jogo" },
   { id: "players", label: "Jogadores" },
+  { id: "opponent", label: "Adversário" },
   { id: "changes", label: "Alterações" },
   { id: "tactic", label: "Tática" },
   { id: "season", label: "Vários jogos" },
@@ -197,6 +201,34 @@ export function AnalysisDrawer({
         : undefined,
     [open, sampled, effectiveProfile, windowMode]
   )
+  // The plan, the opponent report and the player ranking always read the whole match.
+  const fullAnalysis = useMemo(
+    () =>
+      open && analysis
+        ? windowMode === "full"
+          ? analysis
+          : analyseMatch(sampled, effectiveProfile, { window: fullMatchWindow(sampled) })
+        : undefined,
+    [open, analysis, windowMode, sampled, effectiveProfile]
+  )
+  const scouting = useMemo(
+    () =>
+      fullAnalysis
+        ? opponentReport(sampled, fullAnalysis.side, effectiveProfile, fullAnalysis.metrics, fullAnalysis.opponent)
+        : undefined,
+    [fullAnalysis, sampled, effectiveProfile]
+  )
+  const performance = useMemo(
+    () => (fullAnalysis ? teamPerformance(sampled, fullAnalysis.side) : undefined),
+    [fullAnalysis, sampled]
+  )
+  const plan = useMemo(
+    () =>
+      fullAnalysis && scouting && performance
+        ? comebackPlan(sampled, effectiveProfile, fullAnalysis, scouting, performance)
+        : undefined,
+    [fullAnalysis, scouting, performance, sampled, effectiveProfile]
+  )
   const changesReport = useMemo(
     () =>
       open && analysis && tacticChanges
@@ -278,8 +310,11 @@ export function AnalysisDrawer({
             key={tab}
             className="scrollbar-hidden min-h-0 flex-1 animate-in overflow-y-auto fade-in-0 select-text duration-200"
           >
-            {analysis && tab === "match" && <MatchTab analysis={analysis} />}
-            {analysis && tab === "players" && <PlayersTab analysis={analysis} />}
+            {analysis && tab === "match" && <MatchTab analysis={analysis} plan={plan} />}
+            {analysis && tab === "players" && <PlayersTab analysis={analysis} performance={performance} />}
+            {tab === "opponent" && scouting && fullAnalysis && (
+              <OpponentTab report={scouting} opponentName={fullAnalysis.opponentName} />
+            )}
             {tab === "changes" && <ChangesTab report={changesReport} recorded={tacticChanges != null} />}
             {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} observed={observedInstructions} />}
             {tab === "season" && (
@@ -349,7 +384,7 @@ const toneStyles: Record<InsightTone, { dot: string; label: string }> = {
   good: { dot: "bg-status-positive", label: "A correr bem" },
 }
 
-function MatchTab({ analysis }: { analysis: MatchAnalysis }) {
+function MatchTab({ analysis, plan }: { analysis: MatchAnalysis; plan?: GamePlan }) {
   const { metrics, opponent } = analysis
   const fixes = analysis.insights.filter((insight) => insight.tone === "problem" || insight.tone === "warning")
   const notes = analysis.insights.filter((insight) => insight.tone === "info")
@@ -358,6 +393,8 @@ function MatchTab({ analysis }: { analysis: MatchAnalysis }) {
 
   return (
     <div className="space-y-4 p-4">
+      {plan && <PlanCard plan={plan} />}
+
       <p className="text-sm leading-snug font-medium text-foreground">{analysis.headline}</p>
 
       <div className="grid grid-cols-4 gap-2">
@@ -720,13 +757,16 @@ function ComparisonLine({ row, coloured }: { row: ComparisonRow; coloured: boole
 
 // ── Players tab ──────────────────────────────────────────────────────────
 
-function PlayersTab({ analysis }: { analysis: MatchAnalysis }) {
+function PlayersTab({ analysis, performance }: { analysis: MatchAnalysis; performance?: TeamPerformance }) {
   const onPitch = analysis.players.filter((player) => player.isOnPitch)
   const off = analysis.players.filter((player) => !player.isOnPitch)
   return (
     <div className="space-y-4 p-4">
+      {performance && <PerformanceSection performance={performance} />}
       <section className="space-y-2">
-        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Em campo</h3>
+        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+          Em campo · papel, encaixe e instruções
+        </h3>
         {onPitch.map((player) => <PlayerCard key={player.id} player={player} />)}
       </section>
       {off.length > 0 && (
@@ -795,6 +835,200 @@ function PlayerCard({ player }: { player: PlayerReport }) {
         </ul>
       )}
     </article>
+  )
+}
+
+// ── Comeback plan ────────────────────────────────────────────────────────
+
+function PlanCard({ plan }: { plan: GamePlan }) {
+  return (
+    <article className="rounded-lg border border-primary/50 bg-primary/5 px-3 py-3">
+      <h3 className="text-[13px] leading-snug font-semibold">{plan.title}</h3>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{plan.summary}</p>
+      <ol className="mt-2.5 space-y-3">
+        {plan.steps.map((step, index) => (
+          <li key={step.id} className="flex gap-2">
+            <span className="mt-px flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary tabular-nums">
+              {index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h4 className="text-xs font-semibold">{step.title}</h4>
+              {step.detail && <p className="mt-0.5 text-xs leading-relaxed text-foreground/85">{step.detail}</p>}
+              {step.evidence.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                  {step.evidence.map((item) => (
+                    <li key={item}>· {item}</li>
+                  ))}
+                </ul>
+              )}
+              {step.actions.length > 0 && (
+                <ul className="mt-1.5 space-y-1 text-xs">
+                  {step.actions.map((action) => (
+                    <li key={action} className="flex gap-1.5">
+                      <span className="text-primary">→</span>
+                      <span className="leading-relaxed">{action}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </article>
+  )
+}
+
+// ── Player performance ───────────────────────────────────────────────────
+
+function PerformanceSection({
+  performance,
+  bestTitle = "Em destaque",
+  worstTitle = "Abaixo do esperado",
+}: {
+  performance: TeamPerformance
+  bestTitle?: string
+  worstTitle?: string
+}) {
+  if (performance.best.length === 0) {
+    return (
+      <p className="rounded-md bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+        O desempenho dos jogadores aparece a partir dos 15 minutos de jogo.
+      </p>
+    )
+  }
+  return (
+    <section className="space-y-3">
+      <div className="space-y-2">
+        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{bestTitle}</h3>
+        {performance.best.map((player) => (
+          <ImpactCard key={player.id} player={player} emphasis="good" />
+        ))}
+      </div>
+      {performance.worst.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{worstTitle}</h3>
+          {performance.worst.map((player) => (
+            <ImpactCard key={player.id} player={player} emphasis="bad" />
+          ))}
+        </div>
+      )}
+      <details className="group rounded-lg border px-3 py-2">
+        <summary className="cursor-pointer list-none text-[11px] font-medium text-foreground/80 select-none">
+          <span className="mr-1 inline-block transition-transform group-open:rotate-90">›</span>
+          Todos os jogadores por nota
+        </summary>
+        <table className="mt-2 w-full text-[11px] tabular-nums">
+          <tbody>
+            {performance.players.map((player) => (
+              <tr key={player.id} className="border-t border-border/60">
+                <td className="py-1 pr-2 text-muted-foreground">{player.slotLabel}</td>
+                <td className="py-1 pr-2 font-medium">
+                  {player.name}
+                  {!player.isOnPitch && <span className="ml-1 text-[10px] text-muted-foreground">(saiu)</span>}
+                </td>
+                <td className="py-1 pr-2 text-right">{player.minutes}′</td>
+                <td className="py-1 text-right font-semibold">{player.rating != null ? dec(player.rating, 1) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+          A nota é a do próprio FM. As razões comparam os números de cada jogador com o normal para a posição
+          (9 jogos de referência, valores por 90 minutos).
+        </p>
+      </details>
+    </section>
+  )
+}
+
+/** `emphasis`: the reasons that explain why the player is in this list come first. */
+function ImpactCard({ player, emphasis }: { player: PlayerImpact; emphasis: "good" | "bad" }) {
+  const delta = player.rating != null && player.normalRating != null ? player.rating - player.normalRating : undefined
+  const reasons = [
+    ...player.reasons.filter((reason) => reason.tone === emphasis),
+    ...player.reasons.filter((reason) => reason.tone !== emphasis),
+  ].slice(0, 5)
+  return (
+    <article className="rounded-lg border px-3 py-2.5">
+      <header className="flex items-center gap-2">
+        <span className="w-16 shrink-0 text-[10px] font-medium text-muted-foreground">{player.slotLabel}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+          {player.name}
+          {!player.isOnPitch && <span className="ml-1 text-[10px] font-normal text-muted-foreground">(saiu)</span>}
+        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{player.minutes}′</span>
+        {player.rating != null && (
+          <span
+            className={cn(
+              "w-9 rounded px-1 text-center text-[11px] font-semibold tabular-nums",
+              delta == null || Math.abs(delta) < 0.15
+                ? "bg-muted"
+                : delta > 0
+                  ? "bg-status-positive/15 text-status-positive"
+                  : "bg-status-negative/15 text-status-negative"
+            )}
+            title={player.normalRating != null ? `Normal para a posição: ${dec(player.normalRating, 1)}` : undefined}
+          >
+            {dec(player.rating, 1)}
+          </span>
+        )}
+      </header>
+      {player.role && <p className="mt-0.5 pl-[4.5rem] text-[11px] text-muted-foreground">{player.role}</p>}
+      {player.impact && <p className="mt-1 text-xs leading-relaxed text-foreground/85">{player.impact}</p>}
+      {reasons.length > 0 ? (
+        <ul className="mt-1.5 space-y-0.5 text-xs">
+          {reasons.map((reason) => (
+            <li key={reason.text} className="flex gap-1.5">
+              <span
+                className={cn(
+                  "mt-1.5 size-1.5 shrink-0 rounded-full",
+                  reason.tone === "good" ? "bg-status-positive" : "bg-status-negative"
+                )}
+              />
+              <span className="leading-relaxed">{reason.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-[11px] text-muted-foreground">Nenhum número fora do normal para a posição.</p>
+      )}
+    </article>
+  )
+}
+
+// ── Opponent tab ─────────────────────────────────────────────────────────
+
+function exploitInsight(exploit: Exploit): Insight {
+  return { ...exploit, area: "tactic", priority: exploit.weight }
+}
+
+export function OpponentTab({ report, opponentName }: { report: OpponentReport; opponentName: string }) {
+  const weaknesses = report.exploits.filter((exploit) => exploit.tone !== "warning")
+  const warnings = report.exploits.filter((exploit) => exploit.tone === "warning")
+  return (
+    <div className="space-y-4 p-4">
+      <p className="rounded-md bg-muted/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        Compara os atributos dos teus jogadores com os de quem os marca (o lado direito do {opponentName} defende o teu
+        corredor esquerdo) e junta o que o jogo mostra sobre a forma como o adversário defende e perde a bola.
+      </p>
+      <InsightSection
+        title="Pontos fracos a explorar"
+        insights={weaknesses.map(exploitInsight)}
+        empty="Sem diferenças claras de atributos entre os teus atacantes e os defesas adversários."
+      />
+      {warnings.length > 0 && <InsightSection title="Cuidado com" insights={warnings.map(exploitInsight)} />}
+      <InsightSection
+        title={`Como o ${opponentName} está a jogar`}
+        insights={report.tendencies.map(exploitInsight)}
+        empty="Ainda sem padrões claros (aparecem a partir dos 15 minutos)."
+      />
+      <PerformanceSection
+        performance={report.performance}
+        bestTitle="Adversários em destaque (atenção a estes)"
+        worstTitle="Adversários em dificuldade (alvos)"
+      />
+    </div>
   )
 }
 

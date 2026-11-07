@@ -940,6 +940,11 @@ function instructionLabelOf(id: TeamInstructionId) {
   return teamInstructionShortLabels[id]
 }
 
+/** "Largura ofensiva: Equilibrada" — the instruction and the option as written in the suggestions. */
+export function instructionSetting(id: TeamInstructionId, value: string) {
+  return `${instructionLabelOf(id)}: ${instructionLabel(id, value)}`
+}
+
 const teamInstructionShortLabels: Record<TeamInstructionId, string> = {
   attackingTransition: "Transição ofensiva",
   attackingWidth: "Largura ofensiva",

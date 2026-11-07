@@ -17,6 +17,12 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   - `engine.ts` — regras que produzem `Insight`s (tom: problem/warning/info/good) e relatórios por jogador.
   - `tacticChanges.ts` / `tacticChangeRecords.ts` — alterações táticas gravadas pelo plugin, tática efetiva e antes/depois.
   - `multiMatch.ts` — análise de vários `.fmlens` e agregação (padrões recorrentes, médias por jogador).
+  - `playerImpact.ts` — desempenho por jogador: ordena pela nota do FM e explica com os números que fogem ao normal da
+    posição (quartis por 90' de 281 atuações dos jogos de `samples/`) e com a quota nos totais da equipa.
+  - `opponent.ts` — adversário: confrontos de atributos (velocidade, 1x1, jogo aéreo, concentração; o lado direito deles
+    defende o nosso corredor esquerdo), amarelados/cansados, saída de bola frágil, hábitos (altura do bloco, perdas atrás).
+  - `gamePlan.ts` — "plano para dar a volta" sempre que a equipa está a perder (leitura xG, risco por minuto, onde o ataque
+    encrava, pontos fracos do adversário, substituições pelo encaixe no papel, o que não mexer).
   - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).
 - `frontend/tests/analysisPlayerName.test.ts` — testes da correção dos nomes.
 
@@ -50,6 +56,8 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   xG/remate 0,10 · cruzamentos certos 14% · ações ofensivas pelo centro 26% · altura média das ações defensivas 31%
   (a nossa pressão alta: 33–39%; nunca chega a 40%) · perdas no próprio terço ~8 por jogo com saída curta.
   Só há dados de UMA tática (teste2); recalibrar quando houver jogos com outras instruções.
+  Equipas (18 atuações): remates por passe certo para o último terço p25 0,067 / mediana 0,096; altura das ações
+  defensivas p25 24% / p75 36% (abaixo de 25% = bloco baixo); nota do FM por jogador p10 6,28 / mediana 6,66 / p90 7,22.
 
 ## Comandos
 
