@@ -278,3 +278,15 @@ describe("one answer per instruction", () => {
     expect(late.rejected[0]).toMatchObject({ label: "Linha Defensiva: Normal" })
   })
 })
+
+describe("warnings that name an option", () => {
+  it("are not read as a request to choose it", () => {
+    const match = snapshot([])
+    expect(
+      parseSuggestion('Na Distribuição do GR, o próprio jogo avisa que "Laterais" é um passe difícil para o guarda-redes; com Passe 9, vê no jogo o feedback das outras opções.', match, "home")
+    ).toEqual([])
+    expect(parseSuggestion("Mudar Pontapés de Baliza: Mista (menos saídas curtas a partir dos pés dele).", match, "home")).toEqual([
+      { kind: "team", id: "goalKicks", value: "balanced" },
+    ])
+  })
+})

@@ -783,7 +783,13 @@ export function analyseMatch(
           title: "O guarda-redes não é o ideal para sair a jogar",
           detail: `"${instructionLabel("buildUp", team.buildUp)}" e saídas curtas dependem do GR com bola.`,
           evidence: [`${playerLabel(gk)}: Passe ${passing}, Compostura ${composure}, Primeiro toque ${attribute(gk, "First Touch") ?? "?"}`],
-          actions: [`Considera ${set("gkDistribution", "fullBacks")} ou ${set("goalKicks", "balanced")}.`],
+          // Not "Laterais": the game's own feedback on that option says it is a hard pass for the goalkeeper.
+          actions: [
+            team.goalKicks === "short" ? `Mudar ${set("goalKicks", "balanced")} (menos saídas curtas a partir dos pés dele).` : "",
+            team.gkDistribution === "fullBacks"
+              ? `Na ${instructionLabelOf("gkDistribution")}, o próprio jogo avisa que "${instructionLabel("gkDistribution", "fullBacks")}" é um passe difícil para o guarda-redes; com Passe ${passing}, vê no jogo o feedback das outras opções.`
+              : "",
+          ].filter(Boolean),
           priority: 40,
           playerIds: [gk.id],
         })
