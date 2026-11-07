@@ -265,3 +265,23 @@ describe("the supporting runs tile", () => {
     expect(profileOptionFor("underlap", "Equilibrado")).toBe("none")
   })
 })
+
+describe("a tile drawn in passing", () => {
+  it("is ignored when its icon and its text name different options", () => {
+    const at = (sequence: number, pairs: Array<[string, string]>): TacticChange => ({
+      sequence,
+      kind: "uiValues",
+      capturedUnixMilliseconds: sequence * 1000,
+      tick: 114,
+      displayTick: 114,
+      uiValues: pairs.map(([icon, label]) => ({ icon, label })),
+    })
+    const changes = normalizeTacticChanges([
+      at(1, [["team-instructions-out-of-possession-overview-line-of-engagement-var-high-press", "Pressão alta"]]),
+      // As recorded in a real match: the game still showed "Pressão alta".
+      at(2, [["team-instructions-out-of-possession-overview-line-of-engagement-var-high-press", "Equilibrada"]]),
+    ])
+    expect(applyTacticChanges(defaultTacticProfile, changes).team.lineOfEngagement).toBe("highPress")
+    expect(changes.filter((change) => change.kind === "teamInstruction")).toHaveLength(1)
+  })
+})

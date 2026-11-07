@@ -153,6 +153,24 @@ const optionKeyLabels: Record<string, string> = {
   "Backline Depth High": "Muito mais avançada",
 }
 
+/**
+ * Icon variants whose option is certain (the variant name and the text agreed every time they were seen).
+ * Seen once (Nov 2026): a lone redraw of the line-of-engagement tile with "high-press" and the text
+ * "Equilibrada" while the game still showed "Pressão alta" — a tile drawn in passing while switching tabs.
+ */
+const iconVariantOptions: Partial<Record<TeamInstructionId, Record<string, string>>> = {
+  lineOfEngagement: { "high-press": "highPress" },
+}
+
+function contradictsIcon(id: TeamInstructionId | undefined, icon: string, label: string) {
+  if (!id) return false
+  const variant = icon.split("-var-")[1]
+  const byIcon = variant ? iconVariantOptions[id]?.[variant] : undefined
+  const byText = profileOptionFor(id, label)
+  // "Equilibrada" is not even an option of the line of engagement (Pressão alta / Bloco médio / Bloco baixo).
+  return byIcon != null && byText !== byIcon
+}
+
 /** Last resort name for an icon-only value: its variant part ("much-higher" → "much higher"). */
 function optionFromIcon(icon: string) {
   const variant = icon.split(/-var-|-variation-|-type-|-Property-/)[1]
@@ -245,6 +263,8 @@ export function normalizeTacticChanges(all: readonly TacticChange[]): TacticChan
         continue
       }
 
+      // A tile drawn in passing with another tile's text (icon and text name different options): skip it.
+      if (contradictsIcon(instruction.profileId, pair.icon, pair.label)) continue
       const previous = state.get(instruction.key)
       const previousIcon = stateIcons.get(instruction.key)
       const previousNamed = stateNamed.get(instruction.key) ?? true
