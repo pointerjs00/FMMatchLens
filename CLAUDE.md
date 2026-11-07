@@ -84,8 +84,13 @@ Se `npm ci` ficar parado: o `package-lock.json` aponta muitos pacotes para `regi
    e exposto em `/api/match/tactics` e em `tacticChanges` de `/api/archives/{id}/frames`. No painel:
    `features/analysis/tacticChanges.ts` (tática efetiva = separador "Tática" + alterações; antes/depois por paragem) e
    separador "Alterações". Validado repetindo os logs reais das sessões 11–17 no rastreador (24/24 mentalidades).
-   Falta: instruções alteradas no ecrã completo de táticas (só aparece "confirmado"), descodificar o `DynamicReference`
-   das instruções individuais, tática da IA, tática de partida automática.
+   **Texto da interface**: ao desenhar instruções (painel de instruções rápidas, ecrã de táticas, painel de um jogador) a
+   interface envia pares texto da opção + id de ícone (`tactic_icons-in-possession-tempo-var-higher`). O plugin grava-os
+   em bruto (`uiValues`; os vistos antes do jogo como `initial`) e `features/analysis/uiTactic.ts` converte-os em valores
+   absolutos (tabela ícone → instrução; texto → opção só para textos confirmados). O ícone identifica a instrução; o
+   nome da variante nem sempre bate com a opção — o valor vem do texto.
+   Falta: ícones das instruções **sem bola** (ainda não vistos nos logs), jogador das instruções individuais
+   (`DynamicReference`), tática da IA, mais textos do jogo → opção na tabela `gameOptionLabels`.
 2. Plugin: corrigir a leitura de `shirtName` em FM27.
 3. ~~Análise de vários jogos diretamente a partir da API do plugin~~ — feito: botão "Carregar do plugin" no separador
    "Vários jogos" (`listServerArchives` / `analyseServerArchive` em `multiMatch.ts`; frames em páginas de 2 400, ~12 s por jogo).

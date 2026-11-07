@@ -154,6 +154,12 @@ internal static class TacticChangeTracker
             _pendingPlayerSteps = 0;
             _pendingPlayerStepCount = 0;
             if (_mentality > 0) RecordMentality(_mentality, _mentalityName, previous: null, initial: true, atKickOff: true);
+            _lastUiSignature = null;
+            if (PreMatchUiValues.Count > 0)
+            {
+                Record(Draft(TacticChangeKinds.UiValues) with { UiValues = PreMatchUiValues.Values.ToArray(), Initial = true }, atKickOff: true);
+                PreMatchUiValues.Clear();
+            }
         }
     }
 
@@ -304,6 +310,7 @@ internal static class TacticChangeTracker
 
     private static void ObserveChannelValues(IReadOnlyList<string?> values)
     {
+        ObserveUiValues(values);
         LearnMentalityNames(values);
         var found = -1;
         var value = 0;
@@ -355,6 +362,7 @@ internal static class TacticChangeTracker
                               (change.Mentality is { } mentality ? $" mentality={mentality} ({change.MentalityName})" : "") +
                               (change.Instruction is { } instruction ? $" instruction={instruction} ({change.InstructionName})" : "") +
                               (change.Steps is { } steps ? $" steps={steps}" : "") +
+                              (change.UiValues is { Count: > 0 } ui ? $" ui={string.Join(", ", ui.Select(pair => $"{pair.Label} [{pair.Icon}]"))}" : "") +
                               (change.Initial ? " initial" : ""));
         }
         else
@@ -383,6 +391,61 @@ internal static class TacticChangeTracker
         if (!force && Now() - _lastConfirmTimestamp <= ConfirmDisplayWindowMilliseconds) return;
         _unexplainedConfirm = false;
         Record(Draft(TacticChangeKinds.Confirmed));
+    }
+
+    private const string IconPrefix = "tactic_icons-";
+
+    // Instructions drawn before kick-off (latest per instruction), recorded as the starting state.
+    private static readonly Dictionary<string, TacticUiValue> PreMatchUiValues = new(StringComparer.Ordinal);
+    private static string? _lastUiSignature;
+
+    /// <summary>
+    /// The UI draws every instruction as its option text followed by an icon id
+    /// (<c>tactic_icons-in-possession-tempo-var-higher</c>). Pairs are kept raw; the dashboard maps them.
+    /// </summary>
+    private static void ObserveUiValues(IReadOnlyList<string?> values)
+    {
+        List<TacticUiValue>? pairs = null;
+        for (var index = 1; index < values.Count; index++)
+        {
+            var icon = values[index];
+            if (icon is null || !icon.StartsWith(IconPrefix, StringComparison.Ordinal) ||
+                icon.Contains("player_role", StringComparison.Ordinal)) continue;
+            var label = values[index - 1];
+            if (!IsUiLabel(label)) continue;
+            (pairs ??= new List<TacticUiValue>()).Add(new TacticUiValue(icon[IconPrefix.Length..], label!));
+        }
+
+        if (pairs is null) return;
+        if (_timeline?.GetStatus() is not { MatchId: not null, Status: not "ended" })
+        {
+            foreach (var pair in pairs) PreMatchUiValues[UiKey(pair.Icon)] = pair;
+            return;
+        }
+
+        var signature = string.Join("|", pairs.Select(pair => $"{pair.Icon}={pair.Label}"));
+        if (signature == _lastUiSignature) return; // the same panel redrawn
+        _lastUiSignature = signature;
+        Record(Draft(TacticChangeKinds.UiValues) with { UiValues = pairs });
+    }
+
+    private static bool IsUiLabel(string? text) =>
+        !string.IsNullOrWhiteSpace(text) && text.Length <= 80 &&
+        !text.StartsWith(IconPrefix, StringComparison.Ordinal) &&
+        !text.StartsWith("FM.", StringComparison.Ordinal) &&
+        !text.StartsWith("SI.", StringComparison.Ordinal) &&
+        !text.StartsWith("System.", StringComparison.Ordinal);
+
+    /// <summary>Icon id without its option part, to keep one pre-match value per instruction.</summary>
+    private static string UiKey(string icon)
+    {
+        foreach (var separator in new[] { "-var-", "-variation-", "-type-", "-Property-" })
+        {
+            var at = icon.IndexOf(separator, StringComparison.Ordinal);
+            if (at > 0) return icon[..at];
+        }
+
+        return icon;
     }
 
     private static void RecordMentality(int value, string? name, int? previous, bool initial, bool atKickOff) =>

@@ -1,0 +1,226 @@
+/**
+ * The game UI draws every instruction as its option text plus an icon id, and the plugin records those
+ * pairs raw (`uiValues` changes): e.g. "Mais rápido" / `in-possession-tempo-var-higher`. The icon names the
+ * instruction (its variant part is not always right: attacking transition shows `var-hold-shape` next to
+ * "Contra-ataque"), the text gives the option.
+ *
+ * This module turns the raw pairs into absolute instruction values: the first time an instruction is drawn
+ * it is the starting value, later different text is a change. Seen in FM27 PT logs (Nov 2026): the in-possession
+ * team instructions panel and a player's instructions. Out-of-possession icons have not been seen yet;
+ * unknown icons are still shown, named after the icon.
+ */
+import type { TacticChange } from "@/features/analysis/tacticChangeRecords"
+import {
+  teamInstructionDefinitions,
+  type TacticProfile,
+  type TeamInstructionId,
+} from "@/features/analysis/tacticProfile"
+import { teamInstructionById } from "@/features/analysis/tacticInstructionIds"
+
+export type UiScope = "team" | "player"
+
+export type UiInstruction = {
+  /** Icon id without the option part: one key per instruction. */
+  key: string
+  title: string
+  scope: UiScope
+  profileId?: TeamInstructionId
+}
+
+const teamInstructionIcons: Array<[prefix: string, title: string, profileId?: TeamInstructionId]> = [
+  ["in-possession-directness", "Tipo de passe", "passingDirectness"],
+  ["in-possession-tempo", "Ritmo", "tempo"],
+  ["in-possession-team-width", "Largura ofensiva", "attackingWidth"],
+  ["in-possession-overview-attacking-transition", "Transição ofensiva", "attackingTransition"],
+  ["in-possession-overview-creative-freedom", "Liberdade criativa", "creativeFreedom"],
+  ["in-possession-overview-time-wasting", "Queimar tempo", "timeWasting"],
+  ["in-possession-overview-play-for-set-pieces", "Bolas paradas", "setPieces"],
+  ["team-instructions-in-possession-final-third-patience", "Paciência", "patience"],
+  ["team-instructions-in-possession-final-third-shots-from-distance", "Remates de longe", "shotsFromDistance"],
+  ["team-instructions-in-possession-final-third-cross-location", "Tipo de cruzamento", "crossingStyle"],
+  ["team-instructions-in-possession-progression-dribbling", "Drible", "dribbling"],
+  ["team-instructions-in-possession-progression-supporting-runs", "Corridas de apoio"],
+  ["team-instructions-in-possession-progression-progress-through", "Progredir por", "progressThrough"],
+  ["team-instructions-in-possession-progression-passing-reception", "Receção do passe", "passReception"],
+  ["team-instructions-in-possession-build-up-strategy", "Estratégia de construção", "buildUp"],
+  ["team-instructions-in-possession-build-up-goal-kicks", "Pontapés de baliza", "goalKicks"],
+  ["team-instructions-in-possession-build-up-gk-distrubition--speed", "Distribuição do GR (velocidade)", "gkDistributionSpeed"],
+  ["team-instructions-in-possession-build-up-gk-distrubition--distrubute-to", "Distribuição do GR (alvo)", "gkDistribution"],
+]
+
+const playerInstructionIcons: Array<[prefix: string, title: string]> = [
+  ["player-instructions-in-possession-attacking-width", "Largura"],
+  ["player-instructions-in-possession-dribbling-direction", "Direção do drible"],
+  ["player-instructions-in-possession-dribbling-frequency", "Frequência do drible"],
+  ["player-instructions-in-possession-forward-runs", "Corridas para a frente"],
+  ["player-instructions-in-possession-freedom-of-movement", "Liberdade de movimentos"],
+  ["player-instructions-in-possession-hold-up-ball", "Segurar a bola"],
+  ["player-instructions-in-possession-shooting", "Remates"],
+  ["pi_in_possession-passing-strategy", "Estratégia de passe"],
+  ["pi_in_possession-passing-risk", "Risco no passe"],
+  ["pi_in_possession-cross-from", "Cruzar de"],
+  ["in-possession-final-third-cross-strat", "Tipo de cruzamento (individual)"],
+]
+
+/** Option text as the game shows it (FM27 PT) → option of the "Tática" tab, where confirmed. */
+const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>>> = {
+  tempo: {
+    "Muito mais lento": "muchLower",
+    "Mais lento": "lower",
+    Normal: "balanced",
+    "Mais rápido": "higher",
+    "Muito mais rápido": "muchHigher",
+  },
+  passingDirectness: { "Mais curtos": "shorter", "Muito mais curtos": "muchShorter", "Mais diretos": "direct" },
+  attackingTransition: { "Contra-ataque": "counter" },
+  timeWasting: { "Com menos frequência": "lessOften", "Com mais frequência": "moreOften" },
+  buildUp: { "Sair da pressão": "playThroughPress" },
+  goalKicks: { Curta: "short", Curtos: "short", Longa: "long", Longos: "long" },
+  patience: { "Levar a Bola até à Área": "workIntoBox" },
+  passReception: { "Passar para o espaço": "space" },
+  crossingStyle: { "Cruzamentos Rasteiros": "low" },
+}
+
+const neutralLabels = new Set(["equilibrado", "equilibrada", "normal", "padrão"])
+
+export function uiInstructionOf(icon: string): UiInstruction {
+  for (const [prefix, title, profileId] of teamInstructionIcons) {
+    if (icon.startsWith(prefix)) return { key: prefix, title, scope: "team", profileId }
+  }
+  for (const [prefix, title] of playerInstructionIcons) {
+    if (icon.startsWith(prefix)) return { key: prefix, title, scope: "player" }
+  }
+  // Unknown (e.g. out-of-possession): name it after the icon, without the option part.
+  const key = icon.split(/-var-|-variation-|-type-|-Property-/)[0]
+  const scope: UiScope = icon.includes("player-instructions") || icon.startsWith("pi_") ? "player" : "team"
+  const words = key
+    .replace(/^(team-instructions-|player-instructions-)/, "")
+    .replace(/^(in-possession|out-of-possession|pi_in_possession|pi_out_of_possession)-/, "")
+    .replace(/[-_]+/g, " ")
+  return { key, title: words.charAt(0).toUpperCase() + words.slice(1), scope }
+}
+
+/** Option value of the "Tática" tab for a game option text, when known. */
+export function profileOptionFor(id: TeamInstructionId, label: string): string | undefined {
+  const known = gameOptionLabels[id]?.[label]
+  if (known) return known
+  const options = teamInstructionDefinitions.find((item) => item.id === id)?.options ?? []
+  const lower = label.toLocaleLowerCase("pt-PT")
+  const byLabel = options.find((option) => option.label.toLocaleLowerCase("pt-PT") === lower)
+  if (byLabel) return byLabel.value
+  if (neutralLabels.has(lower) && options.some((option) => option.value === "balanced")) return "balanced"
+  return undefined
+}
+
+const mergeWindowMilliseconds = 8_000
+
+/**
+ * Replaces raw `uiValues` records by absolute team instruction values (`source: "ui"`): the first value
+ * drawn for an instruction is marked `initial`, later different text is a change (quick-change clicks a
+ * few seconds apart merge into one). Step records and unidentified confirmations explained by a UI change
+ * are dropped; individual instruction steps get the instruction text of the player panel redraw.
+ */
+export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChange[] {
+  const out: TacticChange[] = []
+  const state = new Map<string, string>()
+  const lastChangeAt = new Map<string, number>()
+  const playerValues = new Map<string, string>()
+  for (const change of raw) {
+    if (change.kind !== "uiValues") {
+      out.push(change)
+      continue
+    }
+    const pairs = change.uiValues ?? []
+    // A single player instruction drawn on its own is the redraw after a click on it.
+    const playerClick = pairs.length === 1 && uiInstructionOf(pairs[0].icon).scope === "player"
+    for (const pair of pairs) {
+      const instruction = uiInstructionOf(pair.icon)
+      if (instruction.scope === "player") {
+        const previous = playerValues.get(instruction.key)
+        playerValues.set(instruction.key, pair.label)
+        if (playerClick && previous !== pair.label) {
+          out.push({
+            ...change,
+            kind: "playerInstruction",
+            source: "ui",
+            uiTitle: instruction.title,
+            fromLabel: previous ?? null,
+            toLabel: pair.label,
+            uiValues: undefined,
+          })
+        }
+        continue
+      }
+
+      const previous = state.get(instruction.key)
+      state.set(instruction.key, pair.label)
+      if (previous === pair.label) continue
+      const base = {
+        ...change,
+        kind: "teamInstruction" as const,
+        source: "ui" as const,
+        uiKey: instruction.key,
+        uiTitle: instruction.title,
+        profileInstruction: instruction.profileId ?? null,
+        toLabel: pair.label,
+        uiValues: undefined,
+      }
+      if (previous == null) {
+        out.push({ ...base, initial: true, fromLabel: null })
+        continue
+      }
+      // Quick-change clicks (Mais rápido → Normal → Mais lento) merge into one change.
+      const merged = [...out].reverse().find((item) => item.source === "ui" && item.uiKey === instruction.key && !item.initial)
+      if (
+        merged &&
+        change.capturedUnixMilliseconds - (lastChangeAt.get(instruction.key) ?? 0) <= mergeWindowMilliseconds
+      ) {
+        out.splice(out.indexOf(merged), 1)
+        lastChangeAt.set(instruction.key, change.capturedUnixMilliseconds)
+        if (merged.fromLabel !== pair.label) out.push({ ...base, sequence: merged.sequence, fromLabel: merged.fromLabel })
+        continue
+      }
+      lastChangeAt.set(instruction.key, change.capturedUnixMilliseconds)
+      out.push({ ...base, initial: false, fromLabel: previous })
+    }
+  }
+  return dropExplained(out).sort((a, b) => a.sequence - b.sequence)
+}
+
+function dropExplained(changes: TacticChange[]): TacticChange[] {
+  const uiChanges = changes.filter((change) => change.source === "ui" && !change.initial)
+  const near = (change: TacticChange, predicate: (other: TacticChange) => boolean) =>
+    uiChanges.some(
+      (other) => predicate(other) && Math.abs(other.capturedUnixMilliseconds - change.capturedUnixMilliseconds) <= 15_000
+    )
+  return changes.flatMap((change) => {
+    if (change.source === "ui") return [change]
+    if (change.kind === "teamInstruction") {
+      const id = teamInstructionById[change.instruction ?? -1]
+      return id && near(change, (other) => other.profileInstruction === id) ? [] : [change]
+    }
+    if (change.kind === "playerInstruction") {
+      return near(change, (other) => other.kind === "playerInstruction") ? [] : [change]
+    }
+    if (change.kind === "confirmed") return near(change, () => true) ? [] : [change]
+    return [change]
+  })
+}
+
+/** Latest value drawn for each team instruction (for the "Tática" tab). */
+export function observedTeamInstructions(changes: readonly TacticChange[]) {
+  const latest = new Map<string, { title: string; label: string; profileId?: TeamInstructionId | null }>()
+  for (const change of changes) {
+    if (change.source !== "ui" || change.kind !== "teamInstruction" || !change.uiKey || !change.toLabel) continue
+    latest.set(change.uiKey, { title: change.uiTitle ?? change.uiKey, label: change.toLabel, profileId: change.profileInstruction })
+  }
+  return [...latest.values()]
+}
+
+/** Applies an absolute UI value to the tactic, when the option is known. */
+export function applyUiValue(profile: TacticProfile, change: TacticChange): TacticProfile {
+  const id = change.profileInstruction
+  if (!id || !change.toLabel) return profile
+  const option = profileOptionFor(id, change.toLabel)
+  return option ? { ...profile, team: { ...profile.team, [id]: option } } : profile
+}

@@ -1,0 +1,31 @@
+import type { TeamInstructionId } from "@/features/analysis/tacticProfile"
+
+/** FM `TacticTeamInstructions` id → instruction of the "Tática" tab (same option order as the game). */
+export const teamInstructionById: Partial<Record<number, TeamInstructionId>> = {
+  1: "passingDirectness",
+  3: "attackingTransition",
+  4: "attackingWidth",
+  5: "creativeFreedom",
+  6: "setPieces",
+  7: "timeWasting",
+  8: "lineOfEngagement",
+  9: "defensiveLine",
+  10: "triggerPress",
+  11: "defensiveTransition",
+  12: "tackling",
+  15: "defensiveLineBehaviour",
+  16: "gkDistribution",
+  17: "gkDistributionSpeed",
+  18: "patience",
+  19: "dribbling",
+  20: "passReception",
+  21: "tempo",
+  22: "crossEngagement",
+  23: "shortGkDistribution",
+  24: "buildUp",
+  25: "pressingTrap",
+  26: "crossingStyle",
+  27: "shotsFromDistance",
+  29: "goalKicks",
+  30: "progressThrough",
+}

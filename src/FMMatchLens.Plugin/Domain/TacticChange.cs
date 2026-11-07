@@ -16,6 +16,8 @@ namespace FMMatchLens.Plugin.Domain;
 /// <item><c>playerInstruction</c> — an individual instruction was stepped (player and instruction are not decoded).</item>
 /// <item><c>swap</c> — players swapped in the match tactic (substitution or position swap).</item>
 /// <item><c>confirmed</c> — a confirmation of tactical changes whose content could not be identified.</item>
+/// <item><c>uiValues</c> — instructions drawn by the UI (team instructions panel, tactics screen, a player's
+/// instructions), raw; <see cref="Initial"/> = seen before kick-off. Interpreted by the dashboard.</item>
 /// </list>
 ///
 /// The match engine only applies a change at the next stoppage; <see cref="AppliedTick"/> is the first
@@ -36,7 +38,15 @@ internal sealed record TacticChange(
     int? Instruction = null,
     string? InstructionName = null,
     int? Steps = null,
-    int? StepCount = null);
+    int? StepCount = null,
+    IReadOnlyList<TacticUiValue>? UiValues = null);
+
+/// <summary>
+/// An instruction as drawn by the game UI: the option text in the game language and the icon id
+/// (without the <c>tactic_icons-</c> prefix), which names the instruction, e.g. "Mais rápido" /
+/// <c>in-possession-tempo-var-higher</c>. Icon variant names do not always match the option; the text does.
+/// </summary>
+internal sealed record TacticUiValue(string Icon, string Label);
 
 internal static class TacticChangeKinds
 {
@@ -45,6 +55,7 @@ internal static class TacticChangeKinds
     public const string PlayerInstruction = "playerInstruction";
     public const string Swap = "swap";
     public const string Confirmed = "confirmed";
+    public const string UiValues = "uiValues";
 }
 
 /// <summary>

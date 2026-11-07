@@ -185,7 +185,7 @@ export const defaultTacticProfile: TacticProfile = {
     goalKicks: "short",
     overlap: "left",
     underlap: "right",
-    passReception: "balanced",
+    passReception: "space",
     passingDirectness: "shorter",
     patience: "workIntoBox",
     setPieces: "keepInPlay",

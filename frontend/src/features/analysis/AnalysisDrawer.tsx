@@ -44,6 +44,7 @@ import {
   type TacticProfile,
 } from "@/features/analysis/tacticProfile"
 import { slotLabel } from "@/features/analysis/roles"
+import { normalizeTacticChanges, observedTeamInstructions } from "@/features/analysis/uiTactic"
 import {
   applyTacticChanges,
   archivedTacticChanges,
@@ -135,7 +136,16 @@ export function AnalysisDrawer({
   const [windowMode, setWindowMode] = useState<WindowMode>("full")
   const [profile, setProfile] = useState<TacticProfile>(loadTacticProfile)
   const sampled = useSampledMatch(match, open)
-  const tacticChanges = useTacticChanges(sampled, open, apiBase, connectionEnabled)
+  const rawTacticChanges = useTacticChanges(sampled, open, apiBase, connectionEnabled)
+  // UI text (instruction panels) turned into absolute values; raw step records it explains are dropped.
+  const tacticChanges = useMemo(
+    () => (rawTacticChanges ? normalizeTacticChanges(rawTacticChanges) : undefined),
+    [rawTacticChanges]
+  )
+  const observedInstructions = useMemo(
+    () => (tacticChanges ? observedTeamInstructions(changesUpTo(tacticChanges, sampled)) : []),
+    [tacticChanges, sampled]
+  )
   // The starting tactic of the "Tática" tab plus the changes detected by the plugin so far.
   const effectiveProfile = useMemo(
     () => (tacticChanges ? applyTacticChanges(profile, changesUpTo(tacticChanges, sampled)) : profile),
@@ -205,7 +215,7 @@ export function AnalysisDrawer({
             {analysis && tab === "match" && <MatchTab analysis={analysis} />}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} />}
             {tab === "changes" && <ChangesTab report={changesReport} recorded={tacticChanges != null} />}
-            {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} />}
+            {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} observed={observedInstructions} />}
             {tab === "season" && (
               <SeasonTab profile={profile} apiBase={apiBase} connectionEnabled={connectionEnabled} />
             )}
@@ -598,7 +608,15 @@ function PlayerCard({ player }: { player: PlayerReport }) {
 const slotOptions = ["GK", "DL", "DCL", "DCR", "DC", "DR", "WBL", "WBR", "DM", "DMC", "ML", "MR", "MC", "MCL", "MCR", "AML", "AMR", "AMC", "ST"]
 const allTags = Object.keys(playerInstructionLabels) as PlayerInstructionTag[]
 
-function TacticTab({ profile, onChange }: { profile: TacticProfile; onChange: (profile: TacticProfile) => void }) {
+function TacticTab({
+  profile,
+  onChange,
+  observed,
+}: {
+  profile: TacticProfile
+  onChange: (profile: TacticProfile) => void
+  observed: ReturnType<typeof observedTeamInstructions>
+}) {
   const [newSlot, setNewSlot] = useState("")
   const groups = [
     { title: "Com bola", phase: "inPossession" as const },
@@ -615,11 +633,26 @@ function TacticTab({ profile, onChange }: { profile: TacticProfile; onChange: (p
   return (
     <div className="space-y-5 p-4">
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Tática de partida. O plugin lê a formação e os papéis, e deteta as alterações feitas durante o jogo
-        (mentalidade, mudanças rápidas de instruções de equipa, substituições); não consegue ler a tática em si.
-        Indica-a aqui uma vez: fica guardada neste browser e a análise aplica-lhe as alterações detetadas
-        (separador "Alterações"). Mudanças feitas no ecrã completo de instruções não são identificadas.
+        Tática de partida. O plugin deteta a mentalidade e as alterações feitas durante o jogo, e lê as
+        instruções de equipa sempre que o jogo as mostra (painel de instruções rápidas ou ecrã de táticas). O que
+        não for lido vem daqui: indica-o uma vez, fica guardado neste browser.
       </p>
+
+      {observed.length > 0 && (
+        <section className="space-y-1.5">
+          <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+            Lido do jogo (prevalece sobre o que está abaixo)
+          </h3>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+            {observed.map((item) => (
+              <div key={item.title} className="flex justify-between gap-2">
+                <span className="text-muted-foreground">{item.title}</span>
+                <span className={cn("font-medium", !item.profileId && "text-muted-foreground")}>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-[11px]">

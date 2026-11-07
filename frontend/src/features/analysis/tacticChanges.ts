@@ -68,35 +68,9 @@ export function mentalityName(value: number | null | undefined) {
   return value != null && value >= 1 && value <= 7 ? fmMentalityNames[value - 1] : "?"
 }
 
-/** FM `TacticTeamInstructions` id → instruction of the "Tática" tab (same option order as the game). */
-export const teamInstructionById: Partial<Record<number, TeamInstructionId>> = {
-  1: "passingDirectness",
-  3: "attackingTransition",
-  4: "attackingWidth",
-  5: "creativeFreedom",
-  6: "setPieces",
-  7: "timeWasting",
-  8: "lineOfEngagement",
-  9: "defensiveLine",
-  10: "triggerPress",
-  11: "defensiveTransition",
-  12: "tackling",
-  15: "defensiveLineBehaviour",
-  16: "gkDistribution",
-  17: "gkDistributionSpeed",
-  18: "patience",
-  19: "dribbling",
-  20: "passReception",
-  21: "tempo",
-  22: "crossEngagement",
-  23: "shortGkDistribution",
-  24: "buildUp",
-  25: "pressingTrap",
-  26: "crossingStyle",
-  27: "shotsFromDistance",
-  29: "goalKicks",
-  30: "progressThrough",
-}
+export { teamInstructionById } from "@/features/analysis/tacticInstructionIds"
+import { teamInstructionById } from "@/features/analysis/tacticInstructionIds"
+import { applyUiValue } from "@/features/analysis/uiTactic"
 
 const otherInstructionNames: Partial<Record<number, string>> = {
   0: "Formação",
@@ -136,8 +110,10 @@ export function applyTacticChanges(
 ): TacticProfile {
   let result: TacticProfile = { ...profile, team: { ...profile.team } }
   for (const change of changes) {
-    if (appliedOnly && change.appliedTick == null) continue
-    if (change.kind === "mentality" && change.mentality != null && change.mentality >= 1 && change.mentality <= 7) {
+    if (appliedOnly && change.appliedTick == null && !change.initial) continue
+    if (change.source === "ui") {
+      if (change.kind === "teamInstruction") result = applyUiValue(result, change)
+    } else if (change.kind === "mentality" && change.mentality != null && change.mentality >= 1 && change.mentality <= 7) {
       result = { ...result, mentality: profileMentalities[change.mentality - 1] }
     } else if (change.kind === "teamInstruction" && change.steps) {
       const id = teamInstructionById[change.instruction ?? -1]
@@ -158,6 +134,15 @@ export function minuteOf(displayTick: number | null | undefined) {
  * instructions read "Ritmo: Mais rápido → Muito mais lento".
  */
 export function describeTacticChange(change: TacticChange, before?: TacticProfile) {
+  if (change.source === "ui") {
+    const title = change.uiTitle ?? "Instrução"
+    if (change.kind === "playerInstruction") {
+      return `Instrução individual · ${title}: ${change.fromLabel ?? "?"} → ${change.toLabel} (jogador não identificado)`
+    }
+    return change.initial
+      ? `${title}: ${change.toLabel}`
+      : `${title}: ${change.fromLabel ?? "?"} → ${change.toLabel}`
+  }
   switch (change.kind) {
     case "mentality":
       if (change.initial) return `Mentalidade inicial: ${change.mentalityName ?? mentalityName(change.mentality)}`
@@ -179,6 +164,8 @@ export function describeTacticChange(change: TacticChange, before?: TacticProfil
       return "Substituição ou troca de posições"
     case "confirmed":
       return "Alteração confirmada no ecrã de táticas (conteúdo não identificado)"
+    case "uiValues":
+      return "Instruções mostradas pelo jogo"
   }
 }
 

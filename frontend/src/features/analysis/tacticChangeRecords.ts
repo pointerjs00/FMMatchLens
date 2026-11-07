@@ -3,7 +3,12 @@
  * archive parser can use them without pulling the analysis panel into the main bundle.
  * The analysis lives in tacticChanges.ts.
  */
-export type TacticChangeKind = "mentality" | "teamInstruction" | "playerInstruction" | "swap" | "confirmed"
+import type { TeamInstructionId } from "@/features/analysis/tacticProfile"
+
+export type TacticChangeKind = "mentality" | "teamInstruction" | "playerInstruction" | "swap" | "confirmed" | "uiValues"
+
+/** An instruction as drawn by the game UI (see uiTactic.ts). */
+export type TacticUiValue = { icon: string; label: string }
 
 export type TacticChange = {
   sequence: number
@@ -25,6 +30,15 @@ export type TacticChange = {
   /** Levels moved; positive = towards the end of the option list (e.g. faster tempo). */
   steps?: number | null
   stepCount?: number | null
+  /** Raw instructions drawn by the UI (`uiValues` records). */
+  uiValues?: TacticUiValue[] | null
+  // Filled by normalizeTacticChanges (uiTactic.ts) for changes derived from the UI text:
+  source?: "ui"
+  uiKey?: string
+  uiTitle?: string
+  profileInstruction?: TeamInstructionId | null
+  fromLabel?: string | null
+  toLabel?: string
 }
 
 const tacticChangeFormatVersion = 1
