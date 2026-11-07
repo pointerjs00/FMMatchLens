@@ -48,6 +48,8 @@ export type Suggestion = {
   changes: SuggestedChange[]
   /** How strongly the panel backs it (problem > warning > note; plan and opponent weaknesses by their own weight). */
   weight?: number
+  /** The rule's explanation (why), for the "O que mudar" tab. */
+  ruleDetail?: string
 }
 
 const mentalityOrder: Mentality[] = ["veryDefensive", "defensive", "cautious", "balanced", "positive", "attacking", "veryAttacking"]
@@ -123,21 +125,27 @@ export function collectSuggestions(
   plan?: GamePlan
 ): Suggestion[] {
   const out: Suggestion[] = []
-  const add = (ruleId: string, ruleTitle: string, actions: string[], weight: number) => {
+  const add = (ruleId: string, ruleTitle: string, actions: string[], weight: number, ruleDetail?: string) => {
     for (const action of actions) {
       const changes = parseSuggestion(action, match, analysis.side)
-      if (changes.length) out.push({ ruleId, ruleTitle, action, changes, weight })
+      if (changes.length) out.push({ ruleId, ruleTitle, action, changes, weight, ruleDetail })
     }
   }
   const toneWeight = { problem: 300, warning: 200, info: 100, good: 50 } as const
   for (const insight of analysis.insights)
-    add(ruleOf(insight.id, "insight"), insight.title, insight.actions, toneWeight[insight.tone] + insight.priority)
+    add(ruleOf(insight.id, "insight"), insight.title, insight.actions, toneWeight[insight.tone] + insight.priority, insight.detail)
   for (const exploit of [...(opponent?.exploits ?? []), ...(opponent?.tendencies ?? [])])
-    add(ruleOf(exploit.id, "opponent"), exploit.title, exploit.actions, (exploit.tone === "warning" ? 200 : exploit.tone === "good" ? 150 : 60) + exploit.weight)
+    add(
+      ruleOf(exploit.id, "opponent"),
+      exploit.title,
+      exploit.actions,
+      (exploit.tone === "warning" ? 200 : exploit.tone === "good" ? 150 : 60) + exploit.weight,
+      [exploit.detail, ...exploit.evidence].join(" · ")
+    )
   // The plan's own decisions (risk, substitutions) weigh most; its other steps repeat rules listed above.
   const planWeight: Record<string, number> = { risk: 400, players: 350 }
   for (const step of plan?.steps ?? [])
-    add(ruleOf(step.id, "plan"), `Plano para dar a volta · ${step.title}`, step.actions, planWeight[step.id] ?? 0)
+    add(ruleOf(step.id, "plan"), `Plano para dar a volta · ${step.title}`, step.actions, planWeight[step.id] ?? 0, step.detail)
   return out
 }
 
@@ -453,7 +461,7 @@ export type ConsolidatedChange = {
   label: string
   change: SuggestedChange
   weight: number
-  sources: Array<{ ruleId: string; ruleTitle: string; action: string }>
+  sources: Array<{ ruleId: string; ruleTitle: string; action: string; ruleDetail?: string }>
 }
 
 export type Consolidation = {
@@ -541,7 +549,12 @@ export function consolidateSuggestions(
       const entry = byKey.get(key) ?? { key, label: labelOf(change, match), change, weight: 0, sources: [] }
       entry.weight = Math.max(entry.weight, suggestion.weight ?? 0)
       if (!entry.sources.some((source) => source.ruleId === suggestion.ruleId))
-        entry.sources.push({ ruleId: suggestion.ruleId, ruleTitle: suggestion.ruleTitle, action: suggestion.action })
+        entry.sources.push({
+          ruleId: suggestion.ruleId,
+          ruleTitle: suggestion.ruleTitle,
+          action: suggestion.action,
+          ruleDetail: suggestion.ruleDetail,
+        })
       byKey.set(key, entry)
     }
   }
@@ -616,4 +629,14 @@ export function collectKeeps(
   for (const exploit of [...(opponent?.exploits ?? []), ...(opponent?.tendencies ?? [])]) scan(exploit.title, exploit.actions)
   for (const step of plan?.steps ?? []) scan(`Plano para dar a volta · ${step.title}`, step.actions)
   return keeps
+}
+
+/** Suggested changes not made yet: the effective tactic does not have them (the "O que mudar" tab). */
+export function pendingChanges(consolidation: Consolidation | undefined, profile: TacticProfile) {
+  return (consolidation?.changes ?? []).filter((item) => {
+    const change = item.change
+    if (change.kind === "team") return profile.team[change.id] !== change.value
+    if (change.kind === "mentality") return profile.mentality !== change.value
+    return true
+  })
 }

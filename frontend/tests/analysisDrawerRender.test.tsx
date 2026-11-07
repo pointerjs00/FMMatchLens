@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { MatchSnapshot } from "@/types/match"
 import { ChangesSummary, ChangesTab, OpponentTab, TacticTab } from "@/features/analysis/AnalysisDrawer"
 import { InstructionScreen } from "@/features/analysis/InstructionScreen"
+import { ToDoTab } from "@/features/analysis/ToDoTab"
 import { tacticChangesReport, type TacticChange } from "@/features/analysis/tacticChanges"
 import { defaultTacticProfile } from "@/features/analysis/tacticProfile"
 import { normalizeTacticChanges, observedTeamInstructions } from "@/features/analysis/uiTactic"
@@ -170,5 +171,54 @@ describe("instructions screen", () => {
     expect(html).toContain("Prestianni ganha o 1x1 contra De la Cruz")
     expect(html).toContain("✓ Domínio com produção ofensiva")
     expect(html).toContain("1 a mudar")
+  })
+})
+
+describe("what to change tab", () => {
+  it("lists each pending change with where to make it in the game and why, by importance", () => {
+    const players = [{ id: 7, name: "Prestianni", team: "home" }] as unknown as MatchSnapshot["players"]
+    const html = renderToStaticMarkup(
+      <ToDoTab
+        match={{ ...snapshot, players }}
+        profile={defaultTacticProfile}
+        keeps={new Map([["triggerPress", ["Perde muitas bolas perto da própria baliza"]]])}
+        consolidation={{
+          changes: [
+            {
+              key: "team:progressThrough:left",
+              label: "Avançar por: Esquerdo",
+              change: { kind: "team", id: "progressThrough", value: "left" },
+              weight: 158,
+              sources: [{ ruleId: "opponent.dribble", ruleTitle: "Prestianni ganha o 1x1", action: "a", ruleDetail: "Drible 17 contra Desarme 14." }],
+            },
+            {
+              key: "player:7:dribbleMore:true",
+              label: 'Dar "Fintar mais" a Prestianni',
+              change: { kind: "player", tag: "dribbleMore", add: true, playerId: 7 },
+              weight: 320,
+              sources: [{ ruleId: "plan.players", ruleTitle: "Plano para dar a volta · Jogadores", action: "b" }],
+            },
+            {
+              // Already set in the tactic: not listed.
+              key: "team:tempo:higher",
+              label: "Ritmo: Mais rápido",
+              change: { kind: "team", id: "tempo", value: "higher" },
+              weight: 200,
+              sources: [{ ruleId: "x", ruleTitle: "X", action: "c" }],
+            },
+          ],
+          rejected: [],
+          notes: new Map(),
+        }}
+      />
+    )
+    expect(html).toContain("Prioritário")
+    expect(html).toContain("Recomendado")
+    expect(html).toContain("Tácticas → Instruções à Equipa → Com Posse de Bola → Avançar por → &quot;Esquerdo&quot;")
+    expect(html).toContain("(agora: Meio)")
+    expect(html).toContain("Drible 17 contra Desarme 14.")
+    expect(html).toContain("Tácticas → clicar em Prestianni")
+    expect(html).not.toContain("Ritmo: Mais rápido")
+    expect(html).toContain("Já está bem assim")
   })
 })

@@ -69,11 +69,13 @@ import { comebackPlan, type GamePlan } from "@/features/analysis/gamePlan"
 import { opponentReport, type Exploit, type OpponentReport } from "@/features/analysis/opponent"
 import { teamPerformance, type PlayerImpact, type TeamPerformance } from "@/features/analysis/playerImpact"
 import { InstructionScreen } from "@/features/analysis/InstructionScreen"
+import { ToDoTab } from "@/features/analysis/ToDoTab"
 import {
   changesMade,
   collectKeeps,
   collectSuggestions,
   consolidateSuggestions,
+  pendingChanges,
   followedSuggestions,
   loggedSuggestions,
   recordSuggestions,
@@ -104,10 +106,11 @@ function ActionLine({ action, className }: { action: string; className?: string 
   )
 }
 
-type TabId = "match" | "players" | "opponent" | "changes" | "tactic" | "season"
+type TabId = "todo" | "match" | "players" | "opponent" | "changes" | "tactic" | "season"
 type WindowMode = "full" | "recent"
 
 const tabs: Array<{ id: TabId; label: string }> = [
+  { id: "todo", label: "O que mudar" },
   { id: "match", label: "Jogo" },
   { id: "players", label: "Jogadores" },
   { id: "opponent", label: "Adversário" },
@@ -319,6 +322,7 @@ export function AnalysisDrawer({
       ),
     [observedInstructions]
   )
+  const todoCount = pendingChanges(consolidation, effectiveProfile).length
   const updateProfile = (next: TacticProfile) => {
     setProfile(next)
     saveTacticProfile(next)
@@ -374,10 +378,12 @@ export function AnalysisDrawer({
               items={tabs.map((item) =>
                 item.id === "changes" && changesReport?.moments.length
                   ? { ...item, badge: changesReport.moments.length }
-                  : item
+                  : item.id === "todo" && todoCount > 0
+                    ? { ...item, badge: todoCount }
+                    : item
               )}
             />
-            {(tab === "match" || tab === "players") && (
+            {(tab === "todo" || tab === "match" || tab === "players") && (
               <Segmented
                 value={windowMode}
                 onChange={setWindowMode}
@@ -394,6 +400,9 @@ export function AnalysisDrawer({
             key={tab}
             className="scrollbar-hidden min-h-0 flex-1 animate-in overflow-y-auto fade-in-0 select-text duration-200"
           >
+            {analysis && tab === "todo" && (
+              <ToDoTab consolidation={consolidation} profile={effectiveProfile} match={sampled} keeps={keeps} />
+            )}
             {analysis && tab === "match" && (
               <MatchTab
                 analysis={analysis}
