@@ -139,9 +139,11 @@ export function describeTacticChange(change: TacticChange, before?: TacticProfil
     if (change.kind === "playerInstruction") {
       return `Instrução individual · ${title}: ${change.fromLabel ?? "?"} → ${change.toLabel} (jogador não identificado)`
     }
-    return change.initial
-      ? `${title}: ${change.toLabel}`
-      : `${title}: ${change.fromLabel ?? "?"} → ${change.toLabel}`
+    if (change.initial) return `${title}: ${change.toLabel}`
+    const since = minuteOf(change.uiSinceDisplayTick)
+    const seen = minuteOf(change.displayTick) ?? 0
+    const when = since != null && since < seen ? ` (feita entre ${since}' e ${seen}')` : ""
+    return `${title}: ${change.fromLabel ?? "?"} → ${change.toLabel}${when}`
   }
   switch (change.kind) {
     case "mentality":

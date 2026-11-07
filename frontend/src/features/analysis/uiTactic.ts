@@ -46,6 +46,16 @@ const teamInstructionIcons: Array<[prefix: string, title: string, profileId?: Te
   ["team-instructions-in-possession-build-up-goal-kicks", "Pontapés de baliza", "goalKicks"],
   ["team-instructions-in-possession-build-up-gk-distrubition--speed", "Distribuição do GR (velocidade)", "gkDistributionSpeed"],
   ["team-instructions-in-possession-build-up-gk-distrubition--distrubute-to", "Distribuição do GR (alvo)", "gkDistribution"],
+  // Out of possession (seen 7 Nov 2026). "defensive-line-secondary" must come before "defensive-line".
+  ["team-instructions-out-of-possession-overview-tackling", "Desarme", "tackling"],
+  ["team-instructions-out-of-possession-overview-defensive-transition", "Transição defensiva", "defensiveTransition"],
+  ["team-instructions-out-of-possession-overview-line-of-engagement", "Bloco / linha de pressão", "lineOfEngagement"],
+  ["team-instructions-out-of-possession-overview-trigger-press", "Frequência de pressão", "triggerPress"],
+  ["team-instructions-out-of-possession-overview-crossing-engagement", "Oposição aos cruzamentos", "crossEngagement"],
+  ["team-instructions-out-of-possession-overview-pressing-trap", "Armadilha de pressão", "pressingTrap"],
+  ["team-instructions-out-of-possession-overview-defensive-line-secondary", "Comportamento da linha", "defensiveLineBehaviour"],
+  ["team-instructions-out-of-possession-overview-defensive-line", "Linha defensiva", "defensiveLine"],
+  ["team-instructions-out-of-possession-overview-prevent-short-gk-distrubution", "Pressionar saída curta do GR", "shortGkDistribution"],
 ]
 
 const playerInstructionIcons: Array<[prefix: string, title: string]> = [
@@ -70,7 +80,19 @@ const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>
     Normal: "balanced",
     "Mais rápido": "higher",
     "Muito mais rápido": "muchHigher",
+    "Muito mais elevado": "muchHigher",
   },
+  tackling: { Normal: "standard" },
+  defensiveTransition: { "Contra-Pressão": "counterPress", Reagrupar: "regroup" },
+  lineOfEngagement: { "Pressão alta": "highPress", "Bloco médio": "midBlock", "Bloco baixo": "lowBlock" },
+  triggerPress: { "Com mais frequência": "moreOften", "Com menos frequência": "lessOften" },
+  defensiveLine: {
+    "Muito mais recuada": "muchLower",
+    "Mais recuada": "lower",
+    "Mais avançada": "higher",
+    "Muito mais avançada": "muchHigher",
+  },
+  shortGkDistribution: { Sim: "yes", Não: "no" },
   passingDirectness: { "Mais curtos": "shorter", "Muito mais curtos": "muchShorter", "Mais diretos": "direct" },
   attackingTransition: { "Contra-ataque": "counter" },
   timeWasting: { "Com menos frequência": "lessOften", "Com mais frequência": "moreOften" },
@@ -125,6 +147,9 @@ export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChan
   const state = new Map<string, string>()
   const lastChangeAt = new Map<string, number>()
   const playerValues = new Map<string, string>()
+  const lastSeenDisplayTick = new Map<string, number>()
+  // Changes seen in a one-value redraw (a click); only those merge with the next clicks.
+  const clicks = new Set<TacticChange>()
   for (const change of raw) {
     if (change.kind !== "uiValues") {
       out.push(change)
@@ -153,8 +178,11 @@ export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChan
       }
 
       const previous = state.get(instruction.key)
+      const seenBefore = lastSeenDisplayTick.get(instruction.key)
       state.set(instruction.key, pair.label)
+      lastSeenDisplayTick.set(instruction.key, change.displayTick)
       if (previous === pair.label) continue
+      const click = pairs.length === 1
       const base = {
         ...change,
         kind: "teamInstruction" as const,
@@ -172,16 +200,27 @@ export function normalizeTacticChanges(raw: readonly TacticChange[]): TacticChan
       // Quick-change clicks (Mais rápido → Normal → Mais lento) merge into one change.
       const merged = [...out].reverse().find((item) => item.source === "ui" && item.uiKey === instruction.key && !item.initial)
       if (
+        click &&
         merged &&
+        clicks.has(merged) &&
         change.capturedUnixMilliseconds - (lastChangeAt.get(instruction.key) ?? 0) <= mergeWindowMilliseconds
       ) {
         out.splice(out.indexOf(merged), 1)
+        clicks.delete(merged)
         lastChangeAt.set(instruction.key, change.capturedUnixMilliseconds)
-        if (merged.fromLabel !== pair.label) out.push({ ...base, sequence: merged.sequence, fromLabel: merged.fromLabel })
+        if (merged.fromLabel !== pair.label) {
+          const next = { ...base, sequence: merged.sequence, fromLabel: merged.fromLabel }
+          out.push(next)
+          clicks.add(next)
+        }
         continue
       }
       lastChangeAt.set(instruction.key, change.capturedUnixMilliseconds)
-      out.push({ ...base, initial: false, fromLabel: previous })
+      // Seen only when the whole panel was drawn again (e.g. picked in an instruction's detail menu, which
+      // sends nothing): it was made at some point since the instruction was last drawn.
+      const next = { ...base, initial: false, fromLabel: previous, uiSinceDisplayTick: click ? undefined : seenBefore }
+      out.push(next)
+      if (click) clicks.add(next)
     }
   }
   return dropExplained(out).sort((a, b) => a.sequence - b.sequence)

@@ -39,6 +39,8 @@ export type TacticChange = {
   profileInstruction?: TeamInstructionId | null
   fromLabel?: string | null
   toLabel?: string
+  /** Seen in a full redraw: made at some point after this display tick (when it was last drawn). */
+  uiSinceDisplayTick?: number
 }
 
 const tacticChangeFormatVersion = 1

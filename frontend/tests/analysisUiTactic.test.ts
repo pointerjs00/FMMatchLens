@@ -89,4 +89,25 @@ describe("instructions read from the game UI", () => {
     expect(applyTacticChanges(start, normalized).team.tempo).toBe("higher")
     expect(observedTeamInstructions(normalized).map((item) => `${item.title}: ${item.label}`)).toContain("Ritmo: Mais rápido")
   })
+
+  it("keeps a change made in an instruction's detail menu apart from the clicks that follow it", () => {
+    // Match of 7 Nov 2026: tempo picked in the detail menu (no event), seen when the panel was drawn
+    // again at 13', then two quick-change clicks down to Normal.
+    const at = (minute: number, seconds: number, ...pairs: Array<[string, string]>) => ({
+      ...ui(seconds, ...pairs),
+      displayTick: minute * 240,
+    })
+    const changes = normalizeTacticChanges([
+      at(9, 500, ["Mais rápido", tempo("higher")], ["Contra-ataque", "in-possession-overview-attacking-transition-var-hold-shape"]),
+      at(13, 700, ["Muito mais elevado", tempo("much-higher")], ["Contra-ataque", "in-possession-overview-attacking-transition-var-hold-shape"]),
+      at(13, 703, ["Mais rápido", tempo("higher")]),
+      at(13, 704, ["Normal", tempo("standard")]),
+      { ...record(705, "teamInstruction", { instruction: 21, steps: -2 }), displayTick: 13 * 240 },
+    ])
+    expect(changes.filter((change) => !change.initial).map((change) => describeTacticChange(change))).toEqual([
+      "Ritmo: Mais rápido → Muito mais elevado (feita entre 9' e 13')",
+      "Ritmo: Muito mais elevado → Normal",
+    ])
+    expect(applyTacticChanges(defaultTacticProfile, changes.slice(0, 3)).team.tempo).toBe("muchHigher")
+  })
 })
