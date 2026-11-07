@@ -389,6 +389,7 @@ internal static class TacticChangeTracker
                               (change.Steps is { } steps ? $" steps={steps}" : "") +
                               (change.UiValues is { Count: > 0 } ui ? $" ui={string.Join(", ", ui.Select(pair => $"{pair.Label}{(pair.OptionKey is null ? "" : $" <{pair.OptionKey}>")} [{pair.Icon}]"))}" : "") +
                               (change.Cancelled ? " cancelled" : "") +
+                              (change.PlayerName is null ? "" : $" player={change.PlayerName}") +
                               (change.Initial ? " initial" : ""));
         }
         else
@@ -432,6 +433,7 @@ internal static class TacticChangeTracker
     private static void ObserveUiValues(IReadOnlyList<string?> values)
     {
         RememberFeedbackKey(values);
+        ObservePlayerHeader(values);
         List<TacticUiValue>? pairs = null;
         for (var index = 1; index < values.Count; index++)
         {
@@ -462,7 +464,65 @@ internal static class TacticChangeTracker
         var signature = string.Join("|", pairs.Select(pair => $"{pair.Icon}={pair.Label}{pair.OptionKey}"));
         if (signature == _lastUiSignature) return; // the same panel redrawn
         _lastUiSignature = signature;
-        Record(Draft(TacticChangeKinds.UiValues) with { UiValues = pairs });
+        var playerPanel = pairs.Any(pair => IsPlayerInstructionIcon(pair.Icon));
+        if (playerPanel && pairs.Count > 1)
+        {
+            // A player's instructions panel was drawn: his name comes in the panel header right after it
+            // (~15 ms). Headers before it belong to other player cards.
+            _panelPlayer = null;
+        }
+
+        var recorded = Record(Draft(TacticChangeKinds.UiValues) with
+        {
+            UiValues = pairs,
+            PlayerName = playerPanel ? _panelPlayer : null,
+        });
+        if (recorded is not null && playerPanel && pairs.Count > 1)
+        {
+            _lastPlayerPanelSequence = recorded.Sequence;
+            _lastPlayerPanelTimestamp = Math.Max(1, Now());
+        }
+    }
+
+    private const long PlayerHeaderWindowMilliseconds = 1_000;
+    private static string? _headerName;
+    private static long _headerTimestamp;
+    private static string? _panelPlayer;
+    private static int _lastPlayerPanelSequence;
+    private static long _lastPlayerPanelTimestamp;
+
+    private static bool IsPlayerInstructionIcon(string icon) =>
+        icon.StartsWith("player-instructions", StringComparison.Ordinal) ||
+        icon.StartsWith("pi_", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The header of a player's instructions panel is a link drawn as <c>\u0001{data}\u0002{name}\u0001</c>
+    /// followed by a <c>PersonReference</c>. The same link appears on other player cards, so the name is only
+    /// used when it comes within 1 s after a player's instructions panel was drawn.
+    /// </summary>
+    private static void ObservePlayerHeader(IReadOnlyList<string?> values)
+    {
+        if (values.Count > 20) return;
+        for (var index = 0; index + 1 < values.Count; index++)
+        {
+            if (values[index + 1] != "FM.UI.PersonReference" || values[index] is not { Length: > 3 } link ||
+                link[0] != '\u0001' || link[^1] != '\u0001') continue;
+            var separator = link.LastIndexOf('\u0002');
+            if (separator < 0 || separator >= link.Length - 2) continue;
+            _headerName = link[(separator + 1)..^1];
+            _headerTimestamp = Math.Max(1, Now());
+            if (_lastPlayerPanelSequence != 0 && _headerTimestamp - _lastPlayerPanelTimestamp <= PlayerHeaderWindowMilliseconds)
+            {
+                // The panel came first: name it now.
+                _panelPlayer = _headerName;
+                var name = _headerName;
+                _timeline?.AmendTacticChange(_lastPlayerPanelSequence, change => change with { PlayerName = name });
+                LogInfo($"Tactic change #{_lastPlayerPanelSequence}: player {name}.");
+                _lastPlayerPanelSequence = 0;
+            }
+
+            return;
+        }
     }
 
     private static string? _feedbackKey;

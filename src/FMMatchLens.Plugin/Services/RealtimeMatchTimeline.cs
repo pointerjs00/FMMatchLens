@@ -152,6 +152,18 @@ internal sealed class RealtimeMatchTimeline
         }
     }
 
+    /// <summary>Rewrites a recorded change (e.g. the player name that arrived a few milliseconds later).</summary>
+    public void AmendTacticChange(int sequence, Func<TacticChange, TacticChange> amend)
+    {
+        lock (_gate)
+        {
+            if (_matchId is null || sequence < 1 || sequence > _tacticChanges.Count) return;
+            var updated = amend(_tacticChanges[sequence - 1]);
+            _tacticChanges[sequence - 1] = updated;
+            _archives.WriteTacticChange(_matchId, updated);
+        }
+    }
+
     public RealtimeTacticChangeSlice GetTacticChanges()
     {
         lock (_gate)

@@ -15,6 +15,7 @@ import {
   dec,
   fullMatchWindow,
   instructionTagLabel,
+  managedSide,
   pct,
   recentWindow,
   type Insight,
@@ -44,7 +45,12 @@ import {
   type TacticProfile,
 } from "@/features/analysis/tacticProfile"
 import { slotLabel } from "@/features/analysis/roles"
-import { normalizeTacticChanges, observedTeamInstructions } from "@/features/analysis/uiTactic"
+import {
+  applyObservedPlayerInstructions,
+  normalizeTacticChanges,
+  observedPlayerInstructions,
+  observedTeamInstructions,
+} from "@/features/analysis/uiTactic"
 import {
   applyTacticChanges,
   archivedTacticChanges,
@@ -147,10 +153,17 @@ export function AnalysisDrawer({
     [tacticChanges, sampled]
   )
   // The starting tactic of the "Tática" tab plus the changes detected by the plugin so far.
-  const effectiveProfile = useMemo(
-    () => (tacticChanges ? applyTacticChanges(profile, changesUpTo(tacticChanges, sampled)) : profile),
-    [profile, tacticChanges, sampled]
-  )
+  const effectiveProfile = useMemo(() => {
+    if (!tacticChanges || !rawTacticChanges) return profile
+    const withChanges = applyTacticChanges(profile, changesUpTo(tacticChanges, sampled))
+    // Individual instructions read from each player's panel replace the tab's ones for his position.
+    const side = managedSide(sampled)
+    return applyObservedPlayerInstructions(
+      withChanges,
+      observedPlayerInstructions(changesUpTo(rawTacticChanges, sampled)),
+      sampled.players.filter((player) => player.team === side)
+    )
+  }, [profile, tacticChanges, rawTacticChanges, sampled])
   const analysis = useMemo(
     () =>
       open

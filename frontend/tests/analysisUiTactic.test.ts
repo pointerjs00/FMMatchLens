@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest"
 import type { TacticChange } from "@/features/analysis/tacticChanges"
 import { applyTacticChanges, describeTacticChange } from "@/features/analysis/tacticChanges"
 import { defaultTacticProfile } from "@/features/analysis/tacticProfile"
+import type { MatchPlayer } from "@/types/match"
+import type { PlayerInstructionTag } from "@/features/analysis/tacticProfile"
 import {
+  applyObservedPlayerInstructions,
+  findPlayerByGameName,
   normalizeTacticChanges,
+  observedPlayerInstructions,
   observedTeamInstructions,
   profileOptionFor,
   uiInstructionOf,
@@ -154,5 +159,42 @@ describe("picks in an instruction's detail menu and cancelled changes", () => {
     const tempoChange = changes.find((change) => change.uiKey === "in-possession-tempo" && !change.initial)
     expect(tempoChange?.displayTick).toBe(2 * 240)
     expect(tempoChange?.uiSinceDisplayTick).toBeUndefined()
+  })
+})
+
+describe("a player's instructions panel", () => {
+  const dahl = { id: 4, name: "Dahl", fullName: "Samuel Dahl", shirtName: "Dahl", team: "home", inPossession: { position: "DL" } }
+  const prestianni = { id: 11, name: "Prestianni", fullName: "Gianluca Prestianni", team: "home", inPossession: { position: "AML" } }
+  const players = [dahl, prestianni] as unknown as MatchPlayer[]
+  const panel = (seconds: number, name: string, ...pairs: Array<[string, string]>) => ({
+    ...record(seconds, "uiValues", { uiValues: pairs.map(([label, icon]) => ({ label, icon })) }),
+    playerName: name,
+  })
+  const frequency = (variant: string) => `player-instructions-in-possession-dribbling-frequency-var-${variant}`
+  const runs = (variant: string) => `player-instructions-in-possession-forward-runs-var-${variant}`
+
+  it("finds the player from the name shown in the panel header", () => {
+    expect(findPlayerByGameName("Samuel Dahl", players)).toBe(dahl)
+    expect(findPlayerByGameName("G. Prestianni", players)).toBe(prestianni)
+    expect(findPlayerByGameName("Fredrik Aursnes", players)).toBeUndefined()
+  })
+
+  it("names the player of an individual instruction change", () => {
+    const changes = normalizeTacticChanges([
+      panel(10, "Samuel Dahl", ["Fintar Menos", frequency("less-often")], ["Normal", runs("standard--null-")]),
+      panel(12, "Samuel Dahl", ["Fintar Mais", frequency("more-often")]),
+    ])
+    expect(changes.map((change) => describeTacticChange(change))).toEqual([
+      "Instrução individual · Samuel Dahl · Frequência do drible: Fintar Menos → Fintar Mais",
+    ])
+  })
+
+  it("uses the instructions read from the panel for the player's position", () => {
+    const profile = { ...defaultTacticProfile, players: { DL: ["dribbleLess", "moreForwardRuns", "pressLess"] as PlayerInstructionTag[] } }
+    const observed = observedPlayerInstructions([
+      panel(10, "Samuel Dahl", ["Fintar Menos", frequency("less-often")], ["Normal", runs("standard--null-")]),
+    ])
+    // "Fazer mais arrancadas" is gone (the panel says Normal); the out-of-possession "pressLess" stays.
+    expect(applyObservedPlayerInstructions(profile, observed, players).players.DL).toEqual(["dribbleLess", "pressLess"])
   })
 })

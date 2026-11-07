@@ -9,9 +9,11 @@
  * team instructions panel and a player's instructions. Out-of-possession icons have not been seen yet;
  * unknown icons are still shown, named after the icon.
  */
+import type { MatchPlayer } from "@/types/match"
 import type { TacticChange } from "@/features/analysis/tacticChangeRecords"
 import {
   teamInstructionDefinitions,
+  type PlayerInstructionTag,
   type TacticProfile,
   type TeamInstructionId,
 } from "@/features/analysis/tacticProfile"
@@ -197,8 +199,9 @@ export function normalizeTacticChanges(all: readonly TacticChange[]): TacticChan
       const pair = { ...drawn, label: resolved || drawn.optionKey || optionFromIcon(drawn.icon) }
       const instruction = uiInstructionOf(pair.icon)
       if (instruction.scope === "player") {
-        const previous = playerValues.get(instruction.key)
-        playerValues.set(instruction.key, pair.label)
+        const playerKey = `${change.playerName ?? ""}|${instruction.key}`
+        const previous = playerValues.get(playerKey)
+        playerValues.set(playerKey, pair.label)
         if (playerClick && previous !== pair.label) {
           out.push({
             ...change,
@@ -302,6 +305,89 @@ function dropExplained(changes: TacticChange[]): TacticChange[] {
     if (change.kind === "confirmed") return near(change, () => true) ? [] : [change]
     return [change]
   })
+}
+
+// ── Individual instructions read from a player's panel ──────────────────
+
+/** Option text (FM27 PT, lower case) of a player's instruction → tag used by the analysis, where known. */
+const playerInstructionTags: Array<[iconPrefix: string, label: string, tag: PlayerInstructionTag]> = [
+  ["player-instructions-in-possession-dribbling-frequency", "fintar menos", "dribbleLess"],
+  ["player-instructions-in-possession-dribbling-frequency", "fintar mais", "dribbleMore"],
+  ["player-instructions-in-possession-shooting", "rematar menos", "shootLess"],
+  ["player-instructions-in-possession-shooting", "rematar mais", "shootMore"],
+  ["player-instructions-in-possession-forward-runs", "fazer mais arrancadas", "moreForwardRuns"],
+  ["player-instructions-in-possession-forward-runs", "fazer menos corridas", "fewerForwardRuns"],
+  ["pi_in_possession-passing-risk", "correr mais riscos", "moreRisk"],
+  ["pi_in_possession-passing-risk", "correr menos riscos", "lessRisk"],
+  ["player-instructions-in-possession-attacking-width", "encurtar linhas", "stayNarrower"],
+  ["player-instructions-in-possession-dribbling-direction", "cortar para dentro", "cutInside"],
+  ["player-instructions-in-possession-hold-up-ball", "sim", "holdUpBall"],
+  ["pi_in_possession-passing-strategy", "mais curtos", "shorterPasses"],
+  ["in-possession-final-third-cross-strat", "avançado alvo", "crossToTargetForward"],
+]
+
+/** Tags the in-possession panel decides (out-of-possession ones stay as in the "Tática" tab). */
+const inPossessionTags = new Set<PlayerInstructionTag>([
+  "dribbleMore", "dribbleLess", "shootMore", "shootLess", "moreRisk", "lessRisk", "moreForwardRuns",
+  "fewerForwardRuns", "stayNarrower", "stayWider", "cutInside", "holdUpBall", "shorterPasses", "crossToTargetForward",
+])
+
+const fold = (text: string) =>
+  text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-PT").trim()
+
+/** Latest value of each instruction of each player whose panel was drawn (raw changes, before normalizing). */
+export function observedPlayerInstructions(raw: readonly TacticChange[]) {
+  const byPlayer = new Map<string, Map<string, { icon: string; label: string }>>()
+  for (const change of raw) {
+    if (change.cancelled || change.kind !== "uiValues" || !change.playerName) continue
+    for (const pair of change.uiValues ?? []) {
+      if (uiInstructionOf(pair.icon).scope !== "player" || !pair.label) continue
+      const values = byPlayer.get(change.playerName) ?? new Map<string, { icon: string; label: string }>()
+      values.set(uiInstructionOf(pair.icon).key, { icon: pair.icon, label: pair.label })
+      byPlayer.set(change.playerName, values)
+    }
+  }
+  return byPlayer
+}
+
+/** The player of our team that a name from the game ("Fredrik Aursnes", "G. Prestianni") refers to. */
+export function findPlayerByGameName(name: string, players: readonly MatchPlayer[]) {
+  const words = fold(name).split(/\s+/)
+  const last = words.at(-1) ?? ""
+  const initial = words.length > 1 ? words[0].replace(/\.$/, "") : ""
+  const candidates = players.filter((player) =>
+    [player.fullName, player.name, player.shirtName].some((text) => {
+      if (!text) return false
+      const own = fold(text).split(/\s+/)
+      return own.at(-1) === last && (!initial || own.length === 1 || own[0].startsWith(initial.charAt(0)))
+    })
+  )
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
+/**
+ * Replaces the in-possession individual instructions of the "Tática" tab by the ones read from each player's
+ * panel, for the position the player holds now.
+ */
+export function applyObservedPlayerInstructions(
+  profile: TacticProfile,
+  observed: ReturnType<typeof observedPlayerInstructions>,
+  players: readonly MatchPlayer[]
+): TacticProfile {
+  if (observed.size === 0) return profile
+  const result = { ...profile, players: { ...profile.players } }
+  for (const [name, values] of observed) {
+    const slot = findPlayerByGameName(name, players)?.inPossession?.position?.toUpperCase()
+    if (!slot) continue
+    const read = new Set<PlayerInstructionTag>()
+    for (const [key, { label }] of values) {
+      const tag = playerInstructionTags.find(([prefix, text]) => key.startsWith(prefix) && fold(label) === text)?.[2]
+      if (tag) read.add(tag)
+    }
+    const kept = (result.players[slot] ?? []).filter((tag) => !inPossessionTags.has(tag))
+    result.players[slot] = [...read, ...kept]
+  }
+  return result
 }
 
 /** Latest value drawn for each team instruction (for the "Tática" tab). */

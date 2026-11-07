@@ -21,6 +21,8 @@ namespace FMMatchLens.Plugin.Domain;
 /// </list>
 ///
 /// <see cref="Cancelled"/>: discarded with "cancel pending changes" before it was applied.
+/// <see cref="PlayerName"/>: for a player's instructions, the name in the header of his instructions panel
+/// (as the game shows it, e.g. "Fredrik Aursnes").
 ///
 /// The match engine only applies a change at the next stoppage; <see cref="AppliedTick"/> is the first
 /// captured tick after the change with the ball out of play or standing still.
@@ -42,7 +44,8 @@ internal sealed record TacticChange(
     int? Steps = null,
     int? StepCount = null,
     IReadOnlyList<TacticUiValue>? UiValues = null,
-    bool Cancelled = false);
+    bool Cancelled = false,
+    string? PlayerName = null);
 
 /// <summary>
 /// An instruction as drawn by the game UI: the option text in the game language and the icon id

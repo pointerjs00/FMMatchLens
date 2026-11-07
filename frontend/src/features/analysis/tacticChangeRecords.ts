@@ -35,6 +35,8 @@ export type TacticChange = {
   stepCount?: number | null
   /** Discarded in the game ("cancel pending changes") before it was applied. */
   cancelled?: boolean
+  /** A player's instructions: the name in the header of his panel, as the game shows it ("Fredrik Aursnes"). */
+  playerName?: string | null
   /** Raw instructions drawn by the UI (`uiValues` records). */
   uiValues?: TacticUiValue[] | null
   // Filled by normalizeTacticChanges (uiTactic.ts) for changes derived from the UI text:
