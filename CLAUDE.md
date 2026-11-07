@@ -47,7 +47,9 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
     efetiva já tem (`pendingChanges`).
   - `gamePlan.ts` — "plano para dar a volta" sempre que a equipa está a perder (leitura xG, risco por minuto, onde o ataque
     encrava, pontos fracos do adversário, substituições pelo encaixe no papel, o que não mexer).
-  - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).
+  - `AnalysisDrawer.tsx` — análise em ecrã inteiro (botão "Análise" no cabeçalho; "← Voltar ao painel" fecha), ampliada
+    com `zoom: 1.2`. Separador "Resumo" com três colunas (O que mudar · Jogo · Jogadores e adversário), cada uma com
+    scroll próprio em ecrãs largos; detalhe em Jogadores, Adversário, Alterações, Tática e Vários jogos.
 - `frontend/tests/analysisPlayerName.test.ts` — testes da correção dos nomes.
 
 ## Factos sobre os dados (verificados num jogo real; não "corrigir" sem voltar a verificar)

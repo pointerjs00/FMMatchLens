@@ -106,12 +106,11 @@ function ActionLine({ action, className }: { action: string; className?: string 
   )
 }
 
-type TabId = "todo" | "match" | "players" | "opponent" | "changes" | "tactic" | "season"
+type TabId = "summary" | "players" | "opponent" | "changes" | "tactic" | "season"
 type WindowMode = "full" | "recent"
 
 const tabs: Array<{ id: TabId; label: string }> = [
-  { id: "todo", label: "O que mudar" },
-  { id: "match", label: "Jogo" },
+  { id: "summary", label: "Resumo" },
   { id: "players", label: "Jogadores" },
   { id: "opponent", label: "Adversário" },
   { id: "changes", label: "Alterações" },
@@ -125,9 +124,9 @@ const drawerTabKey = "fmmatchlens.analysis.tab.v1"
 function loadDrawerTab(): TabId {
   try {
     const stored = window.localStorage.getItem(drawerTabKey)
-    return tabs.some((item) => item.id === stored) ? (stored as TabId) : "match"
+    return tabs.some((item) => item.id === stored) ? (stored as TabId) : "summary"
   } catch {
-    return "match"
+    return "summary"
   }
 }
 
@@ -334,11 +333,12 @@ export function AnalysisDrawer({
         data-analysis-drawer
         className="scrollbar-hidden gap-0 overflow-hidden border-0 bg-card py-0 text-card-foreground shadow-2xl ring-1 ring-foreground/10 [--drawer-inset:12px]"
         style={{
-          width: "min(640px, calc(100vw - 24px))",
-          "--drawer-content-width": "min(640px, calc(100vw - 24px))",
+          width: "calc(100vw - 24px)",
+          "--drawer-content-width": "calc(100vw - 24px)",
         } as React.CSSProperties}
       >
-        <div className="flex h-full min-h-0 w-full flex-col">
+        {/* Larger text, buttons and cards: the whole analysis is scaled up (Chromium/Edge and Firefox support zoom). */}
+        <div className="flex h-full min-h-0 w-full flex-col" style={{ zoom: 1.2 }}>
           <DrawerHeader className="flex-row items-start gap-3 border-b px-4 py-3">
             <div className="min-w-0 flex-1">
               <DrawerTitle className="text-base font-semibold">Análise tática</DrawerTitle>
@@ -366,8 +366,10 @@ export function AnalysisDrawer({
                 </div>
               )}
             </div>
-            <DrawerClose render={<Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Fechar" />}>
-              <span className="text-lg leading-none">×</span>
+            <DrawerClose
+              render={<Button type="button" variant="outline" className="h-9 gap-1.5 px-3 text-sm font-medium" aria-label="Voltar ao painel" />}
+            >
+              ← Voltar ao painel
             </DrawerClose>
           </DrawerHeader>
 
@@ -378,12 +380,12 @@ export function AnalysisDrawer({
               items={tabs.map((item) =>
                 item.id === "changes" && changesReport?.moments.length
                   ? { ...item, badge: changesReport.moments.length }
-                  : item.id === "todo" && todoCount > 0
+                  : item.id === "summary" && todoCount > 0
                     ? { ...item, badge: todoCount }
                     : item
               )}
             />
-            {(tab === "todo" || tab === "match" || tab === "players") && (
+            {(tab === "summary" || tab === "players") && (
               <Segmented
                 value={windowMode}
                 onChange={setWindowMode}
@@ -400,23 +402,38 @@ export function AnalysisDrawer({
             key={tab}
             className="scrollbar-hidden min-h-0 flex-1 animate-in overflow-y-auto fade-in-0 select-text duration-200"
           >
-            {analysis && tab === "todo" && (
-              <ToDoTab consolidation={consolidation} profile={effectiveProfile} match={sampled} keeps={keeps} />
-            )}
-            {analysis && tab === "match" && (
-              <MatchTab
-                analysis={analysis}
-                plan={plan}
-                consolidation={consolidation}
-                screen={
-                  <InstructionScreen
-                    profile={effectiveProfile}
-                    consolidation={consolidation}
-                    keeps={keeps}
-                    readFromGame={readFromGame}
+            {analysis && tab === "summary" && (
+              // Three columns side by side on wide screens, each scrolling on its own.
+              <div className="grid min-h-full grid-cols-1 gap-x-2 lg:grid-cols-2 2xl:h-full 2xl:grid-cols-3">
+                <div className="min-w-0 2xl:min-h-0 2xl:overflow-y-auto">
+                  <ColumnTitle>O que mudar</ColumnTitle>
+                  <ToDoTab consolidation={consolidation} profile={effectiveProfile} match={sampled} keeps={keeps} />
+                </div>
+                <div className="min-w-0 2xl:min-h-0 2xl:overflow-y-auto">
+                  <ColumnTitle>Jogo</ColumnTitle>
+                  <MatchTab
+                    analysis={analysis}
+                    plan={plan}
+                    screen={
+                      <InstructionScreen
+                        profile={effectiveProfile}
+                        consolidation={consolidation}
+                        keeps={keeps}
+                        readFromGame={readFromGame}
+                      />
+                    }
                   />
-                }
-              />
+                </div>
+                <div className="min-w-0 2xl:min-h-0 2xl:overflow-y-auto">
+                  <ColumnTitle>Jogadores e adversário</ColumnTitle>
+                  <div className="space-y-4 p-4">
+                    {performance && <PerformanceSection performance={performance} />}
+                  </div>
+                  {scouting && fullAnalysis && (
+                    <OpponentTab report={scouting} opponentName={fullAnalysis.opponentName} />
+                  )}
+                </div>
+              </div>
             )}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} performance={performance} />}
             {tab === "opponent" && scouting && fullAnalysis && (
@@ -469,6 +486,14 @@ function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  )
+}
+
+function ColumnTitle({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="sticky top-0 z-10 border-b bg-card/95 px-4 py-2 text-sm font-semibold tracking-wide uppercase backdrop-blur">
+      {children}
+    </h2>
   )
 }
 
