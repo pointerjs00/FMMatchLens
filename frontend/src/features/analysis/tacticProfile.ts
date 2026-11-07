@@ -78,7 +78,7 @@ export const teamInstructionDefinitions: InstructionDefinition[] = [
     options: [o("workIntoBox", "Trabalhar a bola até à área"), o("balanced", "Equilibrada"), o("earlyCrosses", "Cruzar mais cedo")] },
   { id: "setPieces", label: "Bolas paradas", phase: "inPossession", defaultValue: "balanced",
     options: [o("keepInPlay", "Manter a bola em jogo"), o("balanced", "Equilibrado"), o("playForSetPieces", "Procurar bolas paradas")] },
-  { id: "progressThrough", label: "Progredir por", phase: "inPossession", defaultValue: "balanced",
+  { id: "progressThrough", label: "Avançar por", phase: "inPossession", defaultValue: "balanced",
     options: [o("left", "Esquerda"), o("middle", "Meio"), o("right", "Direita"), o("balanced", "Equilibrado"), o("flanks", "Alas")] },
   { id: "shotsFromDistance", label: "Remates de longe", phase: "inPossession", defaultValue: "balanced",
     options: [o("less", "Menos"), o("balanced", "Equilibrado"), o("more", "Mais")] },

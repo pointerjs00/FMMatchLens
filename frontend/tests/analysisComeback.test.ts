@@ -100,7 +100,7 @@ describe("opponent weaknesses", () => {
     expect(ids).toContain("aerial-against.12")
     const dribble = report.exploits.find((exploit) => exploit.id === "dribble.1.11")!
     expect(dribble.detail).toContain("corredor esquerdo")
-    expect(dribble.actions).toContain("Mudar Progredir por: Esquerda.")
+    expect(dribble.actions).toContain("Mudar Avançar por: Esquerda.")
   })
 
   it("does not call a strong tackler beatable because of low agility", () => {

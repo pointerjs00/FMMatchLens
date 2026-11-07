@@ -112,7 +112,7 @@ describe("summary of suggested changes", () => {
   it("lists each change once with its rules and the alternatives it beat", () => {
     const winner = {
       key: "team:progressThrough:left",
-      label: "Progredir por: Esquerda",
+      label: "Avançar por: Esquerda",
       change: { kind: "team" as const, id: "progressThrough" as const, value: "left" },
       weight: 158,
       sources: [
@@ -127,7 +127,7 @@ describe("summary of suggested changes", () => {
           rejected: [
             {
               key: "team:progressThrough:right",
-              label: "Progredir por: Direita",
+              label: "Avançar por: Direita",
               change: { kind: "team", id: "progressThrough", value: "right" },
               weight: 157,
               sources: [{ ruleId: "opponent.booked", ruleTitle: "Kokolo está amarelado", action: "c" }],
@@ -141,6 +141,6 @@ describe("summary of suggested changes", () => {
     expect(html).toContain("Mudanças sugeridas")
     expect(html).toContain("2 regras: Prestianni ganha o 1x1 · Plano para dar a volta · Explorar o adversário")
     expect(html).toContain("Sugestões que se contradiziam")
-    expect(html).toContain("Progredir por: Direita")
+    expect(html).toContain("Avançar por: Direita")
   })
 })

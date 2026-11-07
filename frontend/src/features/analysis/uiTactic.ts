@@ -41,7 +41,7 @@ const teamInstructionIcons: Array<[prefix: string, title: string, profileId?: Te
   ["team-instructions-in-possession-final-third-shots-from-distance", "Remates de longe", "shotsFromDistance"],
   ["team-instructions-in-possession-final-third-cross-location", "Tipo de cruzamento", "crossingStyle"],
   ["team-instructions-in-possession-progression-dribbling", "Drible", "dribbling"],
-  ["team-instructions-in-possession-progression-progress-through", "Progredir por", "progressThrough"],
+  ["team-instructions-in-possession-progression-progress-through", "Avançar por", "progressThrough"],
   ["team-instructions-in-possession-progression-passing-reception", "Receção do passe", "passReception"],
   ["team-instructions-in-possession-build-up-strategy", "Estratégia de construção", "buildUp"],
   ["team-instructions-in-possession-build-up-goal-kicks", "Pontapés de baliza", "goalKicks"],

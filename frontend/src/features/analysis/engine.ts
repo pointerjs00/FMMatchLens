@@ -963,7 +963,7 @@ const teamInstructionShortLabels: Record<TeamInstructionId, string> = {
   passingDirectness: "Tipo de passe",
   patience: "Paciência",
   setPieces: "Bolas paradas",
-  progressThrough: "Progredir por",
+  progressThrough: "Avançar por",
   shotsFromDistance: "Remates de longe",
   tempo: "Ritmo",
   timeWasting: "Queimar tempo",

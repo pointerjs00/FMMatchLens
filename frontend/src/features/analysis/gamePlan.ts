@@ -326,7 +326,7 @@ function capitalise(text: string) {
 }
 
 /**
- * Two match-ups can ask for different values of the same team instruction ("Progredir por: Esquerda" and
+ * Two match-ups can ask for different values of the same team instruction ("Avançar por: Esquerda" and
  * "…: Direita"); the first one (the stronger exploit) wins.
  */
 function oneValuePerInstruction(actions: string[]) {
