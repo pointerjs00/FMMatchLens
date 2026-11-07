@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import type { MatchSnapshot } from "@/types/match"
-import { ChangesTab, OpponentTab, TacticTab } from "@/features/analysis/AnalysisDrawer"
+import { ChangesSummary, ChangesTab, OpponentTab, TacticTab } from "@/features/analysis/AnalysisDrawer"
 import { tacticChangesReport, type TacticChange } from "@/features/analysis/tacticChanges"
 import { defaultTacticProfile } from "@/features/analysis/tacticProfile"
 import { normalizeTacticChanges, observedTeamInstructions } from "@/features/analysis/uiTactic"
@@ -105,5 +105,42 @@ describe("opponent tab", () => {
     expect(html).toContain("aparece a partir dos 15 minutos")
     expect(html).toContain("O que o Nacional mudou")
     expect(html).toContain("Matheus Dias mudou de papel com bola")
+  })
+})
+
+describe("summary of suggested changes", () => {
+  it("lists each change once with its rules and the alternatives it beat", () => {
+    const winner = {
+      key: "team:progressThrough:left",
+      label: "Progredir por: Esquerda",
+      change: { kind: "team" as const, id: "progressThrough" as const, value: "left" },
+      weight: 158,
+      sources: [
+        { ruleId: "opponent.dribble", ruleTitle: "Prestianni ganha o 1x1", action: "a" },
+        { ruleId: "plan.opponent", ruleTitle: "Plano para dar a volta · Explorar o adversário", action: "b" },
+      ],
+    }
+    const html = renderToStaticMarkup(
+      <ChangesSummary
+        consolidation={{
+          changes: [winner],
+          rejected: [
+            {
+              key: "team:progressThrough:right",
+              label: "Progredir por: Direita",
+              change: { kind: "team", id: "progressThrough", value: "right" },
+              weight: 157,
+              sources: [{ ruleId: "opponent.booked", ruleTitle: "Kokolo está amarelado", action: "c" }],
+              lostTo: winner,
+            },
+          ],
+          notes: new Map(),
+        }}
+      />
+    )
+    expect(html).toContain("Mudanças sugeridas")
+    expect(html).toContain("2 regras: Prestianni ganha o 1x1 · Plano para dar a volta · Explorar o adversário")
+    expect(html).toContain("Sugestões que se contradiziam")
+    expect(html).toContain("Progredir por: Direita")
   })
 })

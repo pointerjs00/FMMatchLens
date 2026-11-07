@@ -504,4 +504,6 @@ export type MatchSnapshot = {
   momentum: MatchMomentumPoint[]
   rollingMomentum: MatchMomentumPoint[]
   formationSnapshots?: FormationSnapshot[]
+  /** Fork: positions and roles over the match in replays of archives (analysis/roleHistory.ts). */
+  roleHistory?: FormationSnapshot[]
 }

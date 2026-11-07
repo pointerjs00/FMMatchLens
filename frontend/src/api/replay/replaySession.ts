@@ -1,3 +1,4 @@
+import { roleHistoryAt } from "@/features/analysis/roleHistory"
 import {
   HistoricalDerivations,
   type HistoricalDerivationsState,
@@ -246,7 +247,7 @@ function replaySnapshot(
     metadataAtTick(archive.metadataTimeline, frame.tick) ??
     archive.metadataTimeline[0] ??
     archive.metadata
-  return toMatchSnapshot(
+  const snapshot = toMatchSnapshot(
     frame,
     historical.xgTimeline,
     metadata,
@@ -262,6 +263,19 @@ function replaySnapshot(
     archive.ratingConfiguration,
     ratingContributions,
   )
+  // Fork: positions/roles over the match for the analysis (analysis/roleHistory.ts).
+  snapshot.roleHistory = roleHistoryAt(archive.metadataTimeline, frame, snapshot, (tick) => {
+    // First frame at or after the tick (ticks are sorted).
+    let low = 0
+    let high = archive.frameCount - 1
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (archive.ticks[middle] < tick) low = middle + 1
+      else high = middle
+    }
+    return archive.frames[low]?.displayTick ?? tick
+  })
+  return snapshot
 }
 
 export function replayFrameIndexAtPercent(ticks: Int32Array, percent: number) {

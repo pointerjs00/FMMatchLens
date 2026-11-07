@@ -365,6 +365,8 @@ function annotateWithDuels(exploits: Exploit[], field: FieldMatchups, match: Mat
       exploit.tone = "info"
       exploit.contradicted = true
       exploit.title = `${exploit.title}, mas em campo não está a resultar`
+      // Nothing to change for an advantage the duels deny.
+      exploit.actions = []
       exploit.weight -= 4
     } else if (wins / total >= 0.6) {
       exploit.title = `${exploit.title} e está a confirmar-se`

@@ -46,6 +46,8 @@ export type Suggestion = {
   ruleTitle: string
   action: string
   changes: SuggestedChange[]
+  /** How strongly the panel backs it (problem > warning > note; plan and opponent weaknesses by their own weight). */
+  weight?: number
 }
 
 const mentalityOrder: Mentality[] = ["veryDefensive", "defensive", "cautious", "balanced", "positive", "attacking", "veryAttacking"]
@@ -121,16 +123,21 @@ export function collectSuggestions(
   plan?: GamePlan
 ): Suggestion[] {
   const out: Suggestion[] = []
-  const add = (ruleId: string, ruleTitle: string, actions: string[]) => {
+  const add = (ruleId: string, ruleTitle: string, actions: string[], weight: number) => {
     for (const action of actions) {
       const changes = parseSuggestion(action, match, analysis.side)
-      if (changes.length) out.push({ ruleId, ruleTitle, action, changes })
+      if (changes.length) out.push({ ruleId, ruleTitle, action, changes, weight })
     }
   }
-  for (const insight of analysis.insights) add(ruleOf(insight.id, "insight"), insight.title, insight.actions)
+  const toneWeight = { problem: 300, warning: 200, info: 100, good: 50 } as const
+  for (const insight of analysis.insights)
+    add(ruleOf(insight.id, "insight"), insight.title, insight.actions, toneWeight[insight.tone] + insight.priority)
   for (const exploit of [...(opponent?.exploits ?? []), ...(opponent?.tendencies ?? [])])
-    add(ruleOf(exploit.id, "opponent"), exploit.title, exploit.actions)
-  for (const step of plan?.steps ?? []) add(ruleOf(step.id, "plan"), `Plano para dar a volta · ${step.title}`, step.actions)
+    add(ruleOf(exploit.id, "opponent"), exploit.title, exploit.actions, (exploit.tone === "warning" ? 200 : exploit.tone === "good" ? 150 : 60) + exploit.weight)
+  // The plan's own decisions (risk, substitutions) weigh most; its other steps repeat rules listed above.
+  const planWeight: Record<string, number> = { risk: 400, players: 350 }
+  for (const step of plan?.steps ?? [])
+    add(ruleOf(step.id, "plan"), `Plano para dar a volta · ${step.title}`, step.actions, planWeight[step.id] ?? 0)
   return out
 }
 
@@ -436,4 +443,148 @@ export function archiveSuggestionOutcomes(
     }
   }
   return outcomes
+}
+
+// ── One answer per instruction ────────────────────────────────────────────
+
+/** A change the panel suggests, with every rule that asks for it. */
+export type ConsolidatedChange = {
+  key: string
+  label: string
+  change: SuggestedChange
+  weight: number
+  sources: Array<{ ruleId: string; ruleTitle: string; action: string }>
+}
+
+export type Consolidation = {
+  /** One change per instruction / player instruction / substitution, strongest first. */
+  changes: ConsolidatedChange[]
+  /** Changes that lost against a stronger one asking for the opposite. */
+  rejected: Array<ConsolidatedChange & { lostTo: ConsolidatedChange }>
+  /** Action text → note shown under it where it appears (duplicate or contradicted elsewhere). */
+  notes: Map<string, string>
+}
+
+/** Opposite individual instructions are one decision ("Fintar mais" vs "Fintar menos"). */
+const tagFamilies: Array<PlayerInstructionTag[]> = [
+  ["dribbleMore", "dribbleLess"],
+  ["shootMore", "shootLess"],
+  ["moreRisk", "lessRisk"],
+  ["moreForwardRuns", "fewerForwardRuns"],
+  ["pressMore", "pressLess"],
+  ["stayNarrower", "stayWider"],
+]
+
+function decisionOf(change: SuggestedChange) {
+  switch (change.kind) {
+    case "team":
+      return `team:${change.id}`
+    case "mentality":
+      return "mentality"
+    case "player": {
+      const family = tagFamilies.find((tags) => tags.includes(change.tag))
+      return `player:${change.playerId}:${family ? family.join("|") : change.tag}`
+    }
+    case "sub":
+      return `sub:${change.offId}`
+  }
+}
+
+function labelOf(change: SuggestedChange, match: MatchSnapshot) {
+  const name = (id: number) => {
+    const player = match.players.find((candidate) => candidate.id === id)
+    return player ? playerLabel(player) : "?"
+  }
+  switch (change.kind) {
+    case "team":
+      return instructionSetting(change.id, change.value)
+    case "mentality":
+      return `Mentalidade: ${mentalityLabels[change.value]}`
+    case "player":
+      return `${change.add ? "Dar" : "Tirar"} "${playerInstructionLabels[change.tag]}" a ${name(change.playerId)}`
+    case "sub":
+      return `Substituir ${name(change.offId)} por ${name(change.onId)}`
+  }
+}
+
+/**
+ * Merges the same change asked by several rules and settles contradictions (two values for one instruction,
+ * opposite individual instructions, two replacements for one player): the strongest backing wins, the other
+ * is kept as a rejected alternative with the reason.
+ */
+/**
+ * Changes that lower the risk the team takes. When losing in the last 20 minutes the comeback plan asks for
+ * more risk, so these lose against it even when another rule backs them.
+ */
+const lowerRisk: Partial<Record<TeamInstructionId, string[]>> = {
+  defensiveLine: ["muchLower", "lower", "balanced"],
+  defensiveTransition: ["regroup", "balanced"],
+  lineOfEngagement: ["lowBlock", "midBlock"],
+  timeWasting: ["moreOften"],
+  tempo: ["muchLower", "lower"],
+  attackingTransition: ["holdShape"],
+}
+
+function lowersRisk(change: SuggestedChange) {
+  return change.kind === "team" && (lowerRisk[change.id]?.includes(change.value) ?? false)
+}
+
+export function consolidateSuggestions(
+  suggestions: Suggestion[],
+  match: MatchSnapshot,
+  options: { chasingLate?: boolean } = {}
+): Consolidation {
+  const byKey = new Map<string, ConsolidatedChange>()
+  for (const suggestion of suggestions) {
+    for (const change of suggestion.changes) {
+      const key = changeKey(change)
+      const entry = byKey.get(key) ?? { key, label: labelOf(change, match), change, weight: 0, sources: [] }
+      entry.weight = Math.max(entry.weight, suggestion.weight ?? 0)
+      if (!entry.sources.some((source) => source.ruleId === suggestion.ruleId))
+        entry.sources.push({ ruleId: suggestion.ruleId, ruleTitle: suggestion.ruleTitle, action: suggestion.action })
+      byKey.set(key, entry)
+    }
+  }
+  const decisions = new Map<string, ConsolidatedChange[]>()
+  for (const entry of byKey.values()) {
+    const decision = decisionOf(entry.change)
+    decisions.set(decision, [...(decisions.get(decision) ?? []), entry])
+  }
+  const changes: ConsolidatedChange[] = []
+  const rejected: Consolidation["rejected"] = []
+  const notes = new Map<string, string>()
+  // Losing late: the plan's call for risk wins over caution asked by other rules.
+  const riskCall = options.chasingLate
+    ? [...byKey.values()].find((entry) => entry.change.kind === "mentality" && entry.sources.some((source) => source.ruleId === "plan.risk"))
+    : undefined
+  for (const [decision, entries] of [...decisions]) {
+    if (!riskCall) break
+    const cautious = entries.filter((entry) => lowersRisk(entry.change))
+    for (const entry of cautious) {
+      rejected.push({ ...entry, lostTo: riskCall })
+      for (const source of entry.sources)
+        notes.set(source.action, `A perder na reta final, o plano dá prioridade ao risco ("${riskCall.label}"): fica para depois de empatar.`)
+    }
+    const kept = entries.filter((entry) => !cautious.includes(entry))
+    if (kept.length) decisions.set(decision, kept)
+    else decisions.delete(decision)
+  }
+  for (const options of decisions.values()) {
+    // Strongest backing first; with equal weight, the one more rules agree on.
+    const [winner, ...losers] = [...options].sort((a, b) => b.weight - a.weight || b.sources.length - a.sources.length)
+    changes.push(winner)
+    for (const loser of losers) {
+      rejected.push({ ...loser, lostTo: winner })
+      for (const source of loser.sources)
+        notes.set(source.action, `Em conflito com "${winner.label}" (${winner.sources[0].ruleTitle}), que o painel recomenda.`)
+    }
+    if (winner.sources.length > 1) {
+      for (const source of winner.sources) {
+        const others = winner.sources.filter((item) => item.ruleId !== source.ruleId).map((item) => item.ruleTitle)
+        if (!notes.has(source.action)) notes.set(source.action, `Também sugerido por: ${others.join("; ")}.`)
+      }
+    }
+  }
+  changes.sort((a, b) => b.weight - a.weight)
+  return { changes, rejected, notes }
 }

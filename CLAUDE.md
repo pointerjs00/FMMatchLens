@@ -27,12 +27,18 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   - `matchups.ts` — quem enfrenta quem em campo: sobreposição dos mapas de calor por jogador (nosso com bola × deles sem
     bola, zonas 8×12) e duelos com o adversário mais próximo dentro de um limite por tipo (drible ≤ 5 m, perda ≤ 3 m,
     aéreo ≤ 2 m, desarme/interceção ≤ 3 m); sem essa anotação, recorre à zona. Usado por `opponent.ts`.
-  - `opponentChanges.ts` — o que a IA mudou: formação e papéis (histórico de formações, só ao vivo), substituições
-    (ofensiva/defensiva) e altura do bloco nos últimos 15' (só ≥ 14 pontos: p90 da variação normal nos 9 jogos).
+  - `opponentChanges.ts` — o que a IA mudou: formação, papéis, trocas de lado (agrupa idas e voltas ≥ 3×),
+    substituições (ofensiva/defensiva, emparelhadas pela posição no momento) e altura do bloco nos últimos 15' (só ≥ 14
+    pontos: p90 da variação normal nos 9 jogos). Histórico: `formationSnapshots` ao vivo; nas repetições
+    `snapshot.roleHistory` (`roleHistory.ts`, a partir do `metadataTimeline` do arquivo; `formationSnapshots` fica intacto
+    porque o `FormationPitch` do upstream o lê).
   - `SuggestionRecorder.tsx` — montado pela App com o painel fechado num jogo ao vivo; regista as sugestões a cada minuto.
   - `suggestions.ts` — lê de volta as sugestões do painel como alterações concretas, compara-as com as alterações gravadas
     (seguida / iniciativa tua), regista ao vivo o que o painel mostrou (`localStorage`) e, em "Vários jogos", reconstrói as
     sugestões no minuto de cada alteração e agrega o efeito por regra.
+  - `consolidateSuggestions` (`suggestions.ts`) — uma resposta por instrução: junta a mesma mudança pedida por várias
+    regras, resolve contradições pelo peso (problema > aviso > nota; plano decide risco e substituições) e, a perder a
+    partir dos 70', descarta sugestões que baixam o risco. Cartão "Mudanças sugeridas" e notas por baixo de cada ação.
   - `gamePlan.ts` — "plano para dar a volta" sempre que a equipa está a perder (leitura xG, risco por minuto, onde o ataque
     encrava, pontos fracos do adversário, substituições pelo encaixe no papel, o que não mexer).
   - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).
@@ -64,6 +70,9 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   um texto PT. Só acrescentar a `gameOptionLabels`/`playerInstructionTags` (uiTactic.ts) textos vistos no jogo ou cujas
   traduções inglesas apontem todas para a mesma opção. As táticas exportadas (`Documents/.../tactics/*.fmf`, magia
   `afe.`) estão cifradas — não ler.
+- **Nomes dos papéis**: os nomes PT vêm da lista de papéis do FM26/27 nas traduções do jogo (ids 269131603–269131641;
+  ex.: "Pressing Central Midfielder" = "Médio centro pressionante"). Os textos têm sufixo `[%person#1-hidden]` e não usam
+  hífen ("Splitting Outlet Centre Forward"). Papéis sem tradução encontrada ficam em inglês.
 - **Mapas de calor vs eventos**: os mapas de calor (`snapshot.heatmaps`, 40×60, lateral × longitudinal) não têm a
   orientação dos eventos; depende do lado em que a equipa da casa começou. GR da casa com y médio > 50 no mapa ⇒
   (hx, hy) = (y, 100 − x); senão (100 − y, x). Verificado nos 9 jogos, nas duas partes (`matchups.ts`).

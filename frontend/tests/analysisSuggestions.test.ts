@@ -3,6 +3,7 @@ import type { HeatmapGrid, MatchPlayer, MatchSnapshot, TacticalEventPoint, TeamS
 import { duelBalance, fieldMatchups } from "@/features/analysis/matchups"
 import {
   changesMade,
+  consolidateSuggestions,
   followedSuggestions,
   parseSuggestion,
   ruleEffects,
@@ -221,5 +222,59 @@ describe("who faces whom on the pitch", () => {
 
   it("gives up without position data", () => {
     expect(fieldMatchups(snapshot([player(1, "home", "AML")]), "home")).toBeUndefined()
+  })
+})
+
+describe("one answer per instruction", () => {
+  const squad = [player(1, "home", "AMR", "Schjelderup")]
+  const match = snapshot(squad)
+  const suggestion = (ruleId: string, action: string, weight: number): Suggestion => ({
+    ruleId,
+    ruleTitle: ruleId,
+    action,
+    weight,
+    changes: parseSuggestion(action, match, "home"),
+  })
+
+  it("merges the same change asked by several rules", () => {
+    const result = consolidateSuggestions(
+      [
+        suggestion("attack.sterile-possession", "Abrir o campo um nível: Largura ofensiva: Equilibrada.", 275),
+        suggestion("opponent.tendency", "Esticar o bloco: Largura ofensiva: Equilibrada.", 155),
+      ],
+      match
+    )
+    expect(result.changes).toHaveLength(1)
+    expect(result.changes[0].sources.map((source) => source.ruleId)).toEqual(["attack.sterile-possession", "opponent.tendency"])
+    expect(result.notes.get("Esticar o bloco: Largura ofensiva: Equilibrada.")).toBe("Também sugerido por: attack.sterile-possession.")
+  })
+
+  it("keeps the strongest of two values for one instruction and of opposite individual instructions", () => {
+    const result = consolidateSuggestions(
+      [
+        suggestion("opponent.dribble", "Mudar Progredir por: Esquerda.", 158),
+        suggestion("opponent.booked", "Mudar Progredir por: Direita.", 157),
+        suggestion("opponent.duel-won", 'Dar "Fintar mais" a Schjelderup.', 160),
+        suggestion("player", 'Dar "Fintar menos" a Schjelderup.', 355),
+      ],
+      match
+    )
+    expect(result.changes.map((item) => item.label)).toEqual(['Dar "Fintar menos" a Schjelderup', "Progredir por: Esquerda"])
+    expect(result.rejected.map((item) => [item.label, item.lostTo.label])).toEqual([
+      ["Progredir por: Direita", "Progredir por: Esquerda"],
+      ['Dar "Fintar mais" a Schjelderup', 'Dar "Fintar menos" a Schjelderup'],
+    ])
+    expect(result.notes.get("Mudar Progredir por: Direita.")).toMatch(/^Em conflito com "Progredir por: Esquerda"/)
+  })
+
+  it("losing late, caution gives way to the plan's call for risk", () => {
+    const all = [
+      suggestion("plan.risk", "Mentalidade: Positiva → Muito Atacante.", 400),
+      suggestion("transition.exposed", "Baixar a linha um nível: Linha defensiva: Equilibrada.", 385),
+    ]
+    expect(consolidateSuggestions(all, match).changes).toHaveLength(2)
+    const late = consolidateSuggestions(all, match, { chasingLate: true })
+    expect(late.changes.map((item) => item.label)).toEqual(["Mentalidade: Muito Atacante"])
+    expect(late.rejected[0]).toMatchObject({ label: "Linha defensiva: Equilibrada" })
   })
 })

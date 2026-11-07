@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Drawer,
@@ -70,6 +70,7 @@ import { teamPerformance, type PlayerImpact, type TeamPerformance } from "@/feat
 import {
   changesMade,
   collectSuggestions,
+  consolidateSuggestions,
   followedSuggestions,
   loggedSuggestions,
   recordSuggestions,
@@ -77,8 +78,28 @@ import {
   suggestionsAt,
   watchedAt,
   type FollowedSuggestion,
+  type Consolidation,
   type RuleEffect,
 } from "@/features/analysis/suggestions"
+
+/** Notes shown under an action wherever it appears: repeated by another rule, or contradicted by a stronger one. */
+const ActionNotes = createContext<ReadonlyMap<string, string>>(new Map())
+
+function ActionLine({ action, className }: { action: string; className?: string }) {
+  const note = useContext(ActionNotes).get(action)
+  const conflict = note?.startsWith("Em conflito")
+  return (
+    <li className="flex gap-1.5">
+      <span className={conflict ? "text-muted-foreground" : "text-primary"}>→</span>
+      <span className={className}>
+        <span className={cn(conflict && "text-muted-foreground line-through decoration-muted-foreground/50")}>{action}</span>
+        {note && (
+          <span className={cn("block text-[10px]", conflict ? "text-status-warning" : "text-muted-foreground")}>{note}</span>
+        )}
+      </span>
+    </li>
+  )
+}
 
 type TabId = "match" | "players" | "opponent" | "changes" | "tactic" | "season"
 type WindowMode = "full" | "recent"
@@ -272,6 +293,16 @@ export function AnalysisDrawer({
         : undefined,
     [changesReport, analysis, sampled, suggestionLog]
   )
+  // Every action on screen, merged and with contradictions settled (one answer per instruction).
+  const consolidation = useMemo(
+    () =>
+      analysis
+        ? consolidateSuggestions(collectSuggestions(sampled, analysis, scouting, plan), sampled, {
+            chasingLate: plan != null && sampled.clock.minute >= 70,
+          })
+        : undefined,
+    [analysis, sampled, scouting, plan]
+  )
   const updateProfile = (next: TacticProfile) => {
     setProfile(next)
     saveTacticProfile(next)
@@ -342,11 +373,12 @@ export function AnalysisDrawer({
             )}
           </div>
 
+          <ActionNotes.Provider value={consolidation?.notes ?? new Map()}>
           <div
             key={tab}
             className="scrollbar-hidden min-h-0 flex-1 animate-in overflow-y-auto fade-in-0 select-text duration-200"
           >
-            {analysis && tab === "match" && <MatchTab analysis={analysis} plan={plan} />}
+            {analysis && tab === "match" && <MatchTab analysis={analysis} plan={plan} consolidation={consolidation} />}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} performance={performance} />}
             {tab === "opponent" && scouting && fullAnalysis && (
               <OpponentTab report={scouting} opponentName={fullAnalysis.opponentName} />
@@ -359,6 +391,7 @@ export function AnalysisDrawer({
               <SeasonTab profile={profile} apiBase={apiBase} connectionEnabled={connectionEnabled} />
             )}
           </div>
+          </ActionNotes.Provider>
         </div>
       </DrawerContent>
     </Drawer>
@@ -422,7 +455,15 @@ const toneStyles: Record<InsightTone, { dot: string; label: string }> = {
   good: { dot: "bg-status-positive", label: "A correr bem" },
 }
 
-function MatchTab({ analysis, plan }: { analysis: MatchAnalysis; plan?: GamePlan }) {
+function MatchTab({
+  analysis,
+  plan,
+  consolidation,
+}: {
+  analysis: MatchAnalysis
+  plan?: GamePlan
+  consolidation?: Consolidation
+}) {
   const { metrics, opponent } = analysis
   const fixes = analysis.insights.filter((insight) => insight.tone === "problem" || insight.tone === "warning")
   const notes = analysis.insights.filter((insight) => insight.tone === "info")
@@ -432,6 +473,7 @@ function MatchTab({ analysis, plan }: { analysis: MatchAnalysis; plan?: GamePlan
   return (
     <div className="space-y-4 p-4">
       {plan && <PlanCard plan={plan} />}
+      {consolidation && consolidation.changes.length > 0 && <ChangesSummary consolidation={consolidation} />}
 
       <p className="text-sm leading-snug font-medium text-foreground">{analysis.headline}</p>
 
@@ -539,10 +581,7 @@ function InsightCard({ insight }: { insight: Insight }) {
       {insight.actions.length > 0 && (
         <ul className="mt-2 space-y-1 pl-4 text-xs">
           {insight.actions.map((action) => (
-            <li key={action} className="flex gap-1.5">
-              <span className="text-primary">→</span>
-              <span>{action}</span>
-            </li>
+            <ActionLine key={action} action={action} />
           ))}
         </ul>
       )}
@@ -925,6 +964,60 @@ function PlayerCard({ player }: { player: PlayerReport }) {
   )
 }
 
+// ── Summary of suggested changes ─────────────────────────────────────────
+
+/** Every concrete change on screen, once, strongest first; contradicted alternatives below. */
+export function ChangesSummary({ consolidation }: { consolidation: Consolidation }) {
+  const shown = consolidation.changes.slice(0, 8)
+  return (
+    <details className="group rounded-lg border px-3 py-2" open>
+      <summary className="flex cursor-pointer list-none items-baseline gap-2 select-none">
+        <span className="mr-0.5 inline-block text-muted-foreground transition-transform group-open:rotate-90">›</span>
+        <span className="flex-1 text-[13px] font-semibold">Mudanças sugeridas</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{consolidation.changes.length}</span>
+      </summary>
+      <ol className="mt-2 space-y-1.5 text-xs">
+        {shown.map((item, index) => (
+          <li key={item.key} className="flex gap-2">
+            <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{index + 1}.</span>
+            <span className="min-w-0 flex-1">
+              <span className="font-medium">{item.label}</span>
+              <span className="block text-[10px] text-muted-foreground">
+                {item.sources.length > 1 ? `${item.sources.length} regras: ` : ""}
+                {item.sources.map((source) => source.ruleTitle).join(" · ")}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      {consolidation.changes.length > shown.length && (
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
+          E mais {consolidation.changes.length - shown.length} nos cartões abaixo.
+        </p>
+      )}
+      {consolidation.rejected.length > 0 && (
+        <div className="mt-2 border-t pt-2">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase">Sugestões que se contradiziam</p>
+          <ul className="mt-1 space-y-1 text-[11px]">
+            {consolidation.rejected.map((item) => (
+              <li key={item.key}>
+                <span className="text-muted-foreground line-through">{item.label}</span>{" "}
+                <span className="text-muted-foreground">
+                  ({item.sources[0].ruleTitle}) → fica "{item.lostTo.label}" ({item.lostTo.sources[0].ruleTitle}).
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+        Uma linha por instrução: quando várias regras pedem o mesmo aparece uma só vez; quando pedem coisas opostas fica
+        a de maior peso (problemas antes de avisos e notas; o plano para dar a volta decide o risco e as substituições).
+      </p>
+    </details>
+  )
+}
+
 // ── Comeback plan ────────────────────────────────────────────────────────
 
 function PlanCard({ plan }: { plan: GamePlan }) {
@@ -951,10 +1044,7 @@ function PlanCard({ plan }: { plan: GamePlan }) {
               {step.actions.length > 0 && (
                 <ul className="mt-1.5 space-y-1 text-xs">
                   {step.actions.map((action) => (
-                    <li key={action} className="flex gap-1.5">
-                      <span className="text-primary">→</span>
-                      <span className="leading-relaxed">{action}</span>
-                    </li>
+                    <ActionLine key={action} action={action} className="leading-relaxed" />
                   ))}
                 </ul>
               )}

@@ -15,9 +15,11 @@ import { positionGroup, type PositionGroup } from "@/features/analysis/playerImp
 
 export type OpponentChange = {
   minute: number
-  kind: "formation" | "role" | "sub" | "block"
+  kind: "formation" | "role" | "swap" | "sub" | "block"
   title: string
   detail: string
+  /** Internal: groups repeated back-and-forth changes (same player and roles, same pair swapping). */
+  key?: string
 }
 
 const blockShift = 14
@@ -62,7 +64,8 @@ function placed(players: readonly MatchPlayer[]) {
 const phaseText: Record<Phase, string> = { inPossession: "com bola", outOfPossession: "sem bola" }
 
 function formationChanges(match: MatchSnapshot, theirSide: TeamSide): OpponentChange[] {
-  const history = [...(match.formationSnapshots ?? [])].sort((a, b) => a.tick - b.tick)
+  // Live: the plugin's formation history; replays of archives: the metadata timeline (roleHistory.ts).
+  const history = historyOf(match)
   const out: OpponentChange[] = []
   let previous: MatchPlayer[] | undefined
   for (const entry of history) {
@@ -89,47 +92,160 @@ function formationChanges(match: MatchSnapshot, theirSide: TeamSide): OpponentCh
       }
       // A new formation moves everyone; only report role changes made inside the same formation.
       const formationChanged = out.length > reported
-      for (const player of formationChanged ? [] : current) {
-        const old = previous.find((candidate) => candidate.id === player.id)
-        if (!old) continue
-        for (const phase of ["inPossession", "outOfPossession"] as const) {
-          const was = old[phase]
-          const now = player[phase]
-          if (!was?.role || !now?.role || was.role === now.role) continue
-          out.push({
-            minute: entry.minute,
-            kind: "role",
-            title: `${playerLabel(player)} mudou de papel ${phaseText[phase]}`,
-            detail: `${rolePt(was.role)} (${slotLabel(was.position)}) → ${rolePt(now.role)} (${slotLabel(now.position)}).`,
-          })
-        }
-      }
+      if (!formationChanged) out.push(...playerMoves(previous, current, entry.minute))
     }
     previous = current
   }
+  return collapseRepeats(out)
+}
+
+/** Two players who exchanged positions (wingers switching sides) and role changes, one item per player. */
+function playerMoves(previous: MatchPlayer[], current: MatchPlayer[], minute: number): OpponentChange[] {
+  const out: OpponentChange[] = []
+  const handled = new Set<number>()
+  const was = (player: MatchPlayer) => previous.find((candidate) => candidate.id === player.id)
+  // The game sometimes records the swap one phase at a time: check both.
+  const swapped = (a: MatchPlayer, oldA: MatchPlayer, b: MatchPlayer, oldB: MatchPlayer) =>
+    (["inPossession", "outOfPossession"] as const).some(
+      (phase) =>
+        oldA[phase]?.position != null &&
+        oldA[phase]?.position !== a[phase]?.position &&
+        b[phase]?.position === oldA[phase]?.position &&
+        a[phase]?.position === oldB[phase]?.position
+    )
+  for (const a of current) {
+    const oldA = was(a)
+    if (!oldA || handled.has(a.id)) continue
+    const b = current.find((other) => {
+      const oldB = other.id !== a.id ? was(other) : undefined
+      return oldB != null && !handled.has(other.id) && swapped(a, oldA, other, oldB)
+    })
+    if (!b) continue
+    handled.add(a.id)
+    handled.add(b.id)
+    const [first, second] = [a, b].sort((x, y) => x.id - y.id)
+    out.push({
+      minute,
+      kind: "swap",
+      title: `${playerLabel(first)} e ${playerLabel(second)} trocaram de posição`,
+      detail: `${playerLabel(first)} passou para ${slotLabel(first.inPossession?.position)} e ${playerLabel(second)} para ${slotLabel(second.inPossession?.position)}.`,
+      key: `swap:${first.id}:${second.id}`,
+    })
+  }
+  for (const player of current) {
+    const old = was(player)
+    if (!old || handled.has(player.id)) continue
+    const parts: string[] = []
+    const roles: string[] = []
+    for (const phase of ["inPossession", "outOfPossession"] as const) {
+      const before = old[phase]
+      const after = player[phase]
+      if (!before?.role || !after?.role || before.role === after.role) continue
+      parts.push(`${phaseText[phase]}: ${rolePt(before.role)} → ${rolePt(after.role)}`)
+      roles.push(`${phase}:${[before.role, after.role].sort().join("|")}`)
+    }
+    if (!parts.length) continue
+    out.push({
+      minute,
+      kind: "role",
+      title: `${playerLabel(player)} mudou de papel`,
+      detail: `${parts.join("; ")} (${slotLabel(player.inPossession?.position)}).`,
+      key: `role:${player.id}:${roles.join(",")}`,
+    })
+  }
   return out
+}
+
+/** The AI often goes back and forth (a full-back switching between two roles, wingers swapping sides). */
+function collapseRepeats(changes: OpponentChange[]): OpponentChange[] {
+  const groups = new Map<string, OpponentChange[]>()
+  for (const change of changes) if (change.key) groups.set(change.key, [...(groups.get(change.key) ?? []), change])
+  const out: OpponentChange[] = []
+  for (const change of changes) {
+    const group = change.key ? groups.get(change.key)! : undefined
+    if (!group || group.length < 3) {
+      out.push(change)
+      continue
+    }
+    if (group[0] !== change) continue
+    const minutes = group.map((item) => item.minute)
+    out.push({
+      minute: minutes[0],
+      kind: change.kind,
+      title:
+        change.kind === "swap"
+          ? `${change.title.replace(" trocaram de posição", "")} trocaram de lado ${group.length} vezes`
+          : `${change.title.replace(" mudou de papel", "")} alternou de papel ${group.length} vezes`,
+      detail: `Entre os ${minutes[0]}' e os ${minutes.at(-1)}'. Última: ${group.at(-1)!.detail}`,
+      key: change.key,
+    })
+  }
+  return out
+}
+
+/** Positions/roles history: the plugin's (live) or the archive's (replays). */
+function historyOf(match: MatchSnapshot) {
+  const source = match.formationSnapshots?.length ? match.formationSnapshots : (match.roleHistory ?? [])
+  return [...source].sort((a, b) => a.tick - b.tick)
+}
+
+/** A player's position around a minute: the first entry from then on (coming on) or the last one before (going off). */
+function slotAt(match: MatchSnapshot, playerId: number, minute: number, when: "from" | "before") {
+  const history = historyOf(match)
+  const entries = when === "from" ? history.filter((entry) => entry.minute >= minute) : history.filter((entry) => entry.minute < minute).reverse()
+  for (const entry of entries) {
+    const slot = entry.players.find((player) => player.id === playerId)?.inPossession?.position
+    if (slot) return slot
+  }
+  return undefined
 }
 
 function substitutions(match: MatchSnapshot, theirSide: TeamSide): OpponentChange[] {
   const squad = match.players.filter((player) => player.team === theirSide)
   const out: OpponentChange[] = []
-  for (const incoming of squad.filter((player) => player.status?.subbedOnMinute != null)) {
-    const minute = incoming.status!.subbedOnMinute!
-    const outgoing = squad.find((player) => player.status?.subbedOffMinute === minute && !out.some((item) => item.detail.includes(playerLabel(player))))
-    const inSlot = incoming.inPossession?.position ?? incoming.position
-    const inGroup = positionGroup(inSlot)
-    const outSlot = outgoing?.inPossession?.position ?? outgoing?.position
-    const outGroup = positionGroup(outSlot)
-    const shift = inGroup && outGroup ? depth[inGroup] - depth[outGroup] : 0
-    const nature = shift >= 1 ? "ofensiva" : shift <= -1 ? "defensiva" : "na mesma zona"
-    out.push({
-      minute,
-      kind: "sub",
-      title: `Substituição ${nature}`,
-      detail: outgoing
-        ? `Entrou ${playerLabel(incoming)} (${slotLabel(inSlot)}) para o lugar de ${playerLabel(outgoing)} (${slotLabel(outSlot)}).`
-        : `Entrou ${playerLabel(incoming)} (${slotLabel(inSlot)}).`,
-    })
+  const side = (slot?: string) => (slot && /L$/.test(slot) ? "L" : slot && /R$/.test(slot) ? "R" : "C")
+  const minutes = [...new Set(squad.map((player) => player.status?.subbedOnMinute).filter((value): value is number => value != null))]
+  for (const minute of minutes.sort((a, b) => a - b)) {
+    const incoming = squad
+      .filter((player) => player.status?.subbedOnMinute === minute)
+      .map((player) => ({ player, slot: slotAt(match, player.id, minute, "from") ?? player.inPossession?.position ?? player.position }))
+    const outgoing = squad
+      .filter((player) => player.status?.subbedOffMinute === minute)
+      .map((player) => ({ player, slot: slotAt(match, player.id, minute, "before") ?? player.inPossession?.position ?? player.position }))
+    // Several changes in the same minute: pair the same position first, then the closest one.
+    const cost = (a?: string, b?: string) => {
+      if (a && a === b) return 0
+      const ga = positionGroup(a)
+      const gb = positionGroup(b)
+      return (ga && gb ? Math.abs(depth[ga] - depth[gb]) : 3) + (side(a) === side(b) ? 0 : 0.5)
+    }
+    const pairs = incoming
+      .flatMap((inItem) => outgoing.map((outItem) => ({ inItem, outItem, cost: cost(inItem.slot, outItem.slot) })))
+      .sort((a, b) => a.cost - b.cost)
+    const usedIn = new Set<number>()
+    const usedOut = new Set<number>()
+    const matched: Array<{ inItem: (typeof incoming)[number]; outItem?: (typeof outgoing)[number] }> = []
+    for (const pair of pairs) {
+      if (usedIn.has(pair.inItem.player.id) || usedOut.has(pair.outItem.player.id)) continue
+      usedIn.add(pair.inItem.player.id)
+      usedOut.add(pair.outItem.player.id)
+      matched.push(pair)
+    }
+    for (const inItem of incoming) if (!usedIn.has(inItem.player.id)) matched.push({ inItem })
+    for (const { inItem, outItem } of matched) {
+      const inGroup = positionGroup(inItem.slot)
+      const outGroup = positionGroup(outItem?.slot)
+      const shift = inGroup && outGroup ? depth[inGroup] - depth[outGroup] : 0
+      const nature = shift >= 1 ? "ofensiva" : shift <= -1 ? "defensiva" : "na mesma zona"
+      out.push({
+        minute,
+        kind: "sub",
+        title: `Substituição ${nature}`,
+        detail: outItem
+          ? `Entrou ${playerLabel(inItem.player)} (${slotLabel(inItem.slot)}) para o lugar de ${playerLabel(outItem.player)} (${slotLabel(outItem.slot)}).`
+          : `Entrou ${playerLabel(inItem.player)} (${slotLabel(inItem.slot)}).`,
+      })
+    }
   }
   return out
 }

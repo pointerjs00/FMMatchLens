@@ -496,7 +496,7 @@ export function analyseMatch(
             `${playerLabel(player)} (${rolePt(player.inPossession?.role)} c/ bola, ${rolePt(player.outOfPossession?.role)} s/ bola) · Posicionamento ${attribute(player, "Positioning") ?? "?"}, Índice de trabalho ${attribute(player, "Work Rate") ?? "?"}`
         ),
         actions: [
-          `Dá ao lateral desse lado uma função mais defensiva sem bola (ex.: Lateral de contenção) ou tira-lhe "Fazer mais arrancadas".`,
+          `Dá ao lateral desse lado uma função mais defensiva sem bola (ex.: Lateral defensivo) ou tira-lhe "Fazer mais arrancadas".`,
           `O médio/extremo desse lado deve ter "Marcar mais apertado" ou um papel sem bola de trabalho (Médio ala).`,
           team.pressingTrap === "balanced"
             ? `Se o perigo vier por fora, ${set("pressingTrap", "inside")} empurra o jogo deles para o meio, onde tens o médio defensivo.`
@@ -611,7 +611,7 @@ export function analyseMatch(
           attackingFullBacks.length >= 2 ? `Os dois laterais sobem como alas (${attackingFullBacks.map(playerLabel).join(", ")})` : "",
         ].filter(Boolean),
         actions: [
-          attackingFullBacks.length >= 2 ? "Deixa um dos laterais com dever Defender ou papel de Lateral de contenção para haver três atrás na transição." : "",
+          attackingFullBacks.length >= 2 ? "Deixa um dos laterais com dever Defender ou papel de Lateral defensivo para haver três atrás na transição." : "",
           highLine ? `Baixar a linha um nível: ${set("defensiveLine", team.defensiveLine === "muchHigher" ? "higher" : "balanced")}.` : "",
           team.defensiveTransition === "counterPress" ? `Se continuar: ${set("defensiveTransition", "regroup")}.` : "",
         ].filter(Boolean),

@@ -128,7 +128,43 @@ describe("what the opponent changed", () => {
     expect(changes.map((change) => [change.minute, change.kind, change.title])).toEqual([
       [60, "formation", "Passou de 4-2-3-1 para 5-2-1-2 sem bola"],
       [60, "formation", "Passou de 4-2-3-1 para 5-2-1-2 com bola"],
-      [70, "role", "P100 mudou de papel com bola"],
+      [70, "role", "P100 mudou de papel"],
+    ])
+  })
+
+  it("reports wingers swapping sides once, and groups the back-and-forth", () => {
+    const base = lineup(fourTwoThreeOne)
+    const swap = (players: MatchPlayer[]) =>
+      players.map((item) =>
+        item.inPossession?.position === "AML"
+          ? ({ ...item, inPossession: { position: "AMR", role: "Role A" }, outOfPossession: { position: "AMR", role: "Role A" } } as MatchPlayer)
+          : item.inPossession?.position === "AMR"
+            ? ({ ...item, inPossession: { position: "AML", role: "Role A" }, outOfPossession: { position: "AML", role: "Role A" } } as MatchPlayer)
+            : item
+      )
+    const once = opponentChanges(snapshot({ formationSnapshots: [entry(0, base), entry(40, swap(base))] }), "home")
+    expect(once.map((change) => change.title)).toEqual(["P106 e P108 trocaram de posição"])
+    const often = opponentChanges(
+      snapshot({ formationSnapshots: [entry(0, base), entry(40, swap(base)), entry(50, base), entry(60, swap(base))] }),
+      "home"
+    )
+    expect(often).toHaveLength(1)
+    expect(often[0]).toMatchObject({ minute: 40, kind: "swap", title: "P106 e P108 trocaram de lado 3 vezes" })
+  })
+
+  it("reads the history of a replay when there is no live one", () => {
+    const fiveBack = lineup(["WBL", "DCL", "DC", "DCR", "WBR", "MCL", "MCR", "AMC", "STL", "STR"])
+    const changes = opponentChanges(snapshot({ roleHistory: [entry(0, lineup(fourTwoThreeOne)), entry(60, fiveBack)] }), "home")
+    expect(changes.map((change) => change.kind)).toEqual(["formation", "formation"])
+  })
+
+  it("pairs simultaneous substitutions by position", () => {
+    const off = (id: number, slot: string) => player(id, "away", slot, slot, { status: { subbedOffMinute: 90 }, isOnPitch: false } as Partial<MatchPlayer>)
+    const on = (id: number, slot: string) => player(id, "away", slot, slot, { isStarter: false, status: { subbedOnMinute: 90 } } as Partial<MatchPlayer>)
+    const changes = opponentChanges(snapshot({ players: [off(1, "ST"), off(2, "DR"), on(3, "DR"), on(4, "ST")] }), "home")
+    expect(changes.map((change) => change.detail).sort()).toEqual([
+      "Entrou P3 (D (D)) para o lugar de P2 (D (D)).",
+      "Entrou P4 (PL) para o lugar de P1 (PL).",
     ])
   })
 
