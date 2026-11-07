@@ -73,6 +73,11 @@ describe("instructions read from the game UI", () => {
     expect(profileOptionFor("passReception", "Passar para o espaço")).toBe("space")
     expect(profileOptionFor("attackingWidth", "Mais Compacto")).toBe("muchNarrower")
     expect(profileOptionFor("attackingWidth", "Sem tradução")).toBeUndefined()
+    // Checked against the game's translation tables (portuguese.ltc ↔ english.ltc).
+    expect(profileOptionFor("goalKicks", "Mista")).toBe("balanced")
+    expect(profileOptionFor("buildUp", "Iludir a pressão")).toBe("bypassPress")
+    expect(profileOptionFor("crossingStyle", "Cruzamentos Tensos")).toBe("whipped")
+    expect(profileOptionFor("creativeFreedom", "Expressividade")).toBeUndefined()
   })
 
   it("turns the panel and the quick-change clicks into absolute changes", () => {

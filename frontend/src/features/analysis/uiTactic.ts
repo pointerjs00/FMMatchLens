@@ -74,7 +74,13 @@ const playerInstructionIcons: Array<[prefix: string, title: string]> = [
   ["in-possession-final-third-cross-strat", "Tipo de cruzamento (individual)"],
 ]
 
-/** Option text as the game shows it (FM27 PT) → option of the "Tática" tab, where confirmed. */
+/**
+ * Option text as the game shows it (FM27 PT) → option of the "Tática" tab. Every entry was either seen next
+ * to the instruction's icon in the game, or checked against the game's own translation tables
+ * (data/game_simulation/languages.fmf, portuguese.ltc ↔ english.ltc joined by string id): a text is listed
+ * only when all of its English translations name that option (e.g. "Mista" = Mixed, "Iludir a pressão" =
+ * Bypass Press). Texts with more than one meaning in the game ("Expressividade", "Mais elevado") are left out.
+ */
 const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>>> = {
   tempo: {
     "Muito mais lento": "muchLower",
@@ -90,7 +96,7 @@ const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>
     Largura: "wider",
     "Maior Largura": "muchWider",
   },
-  tackling: { Normal: "standard" },
+  tackling: { "Evitar Carrinhos": "stayOnFeet", Normal: "standard", "Desarme Agressivo": "getStuckIn" },
   defensiveTransition: { "Contra-Pressão": "counterPress", Reagrupar: "regroup" },
   lineOfEngagement: { "Pressão alta": "highPress", "Bloco médio": "midBlock", "Bloco baixo": "lowBlock" },
   triggerPress: { "Com mais frequência": "moreOften", "Com menos frequência": "lessOften" },
@@ -102,14 +108,28 @@ const gameOptionLabels: Partial<Record<TeamInstructionId, Record<string, string>
     "Muito mais avançada": "muchHigher",
   },
   shortGkDistribution: { Sim: "yes", Não: "no" },
-  passingDirectness: { "Mais curtos": "shorter", "Muito mais curtos": "muchShorter", "Mais diretos": "direct" },
-  attackingTransition: { "Contra-ataque": "counter" },
+  passingDirectness: {
+    "Muito mais curtos": "muchShorter",
+    "Mais curtos": "shorter",
+    "Mais directos": "direct",
+    "Muito mais directos": "muchDirect",
+  },
+  attackingTransition: { "Manter Formação": "holdShape", "Contra-ataque": "counter" },
+  creativeFreedom: { "Mais disciplinado": "disciplined", Disciplinado: "disciplined", "Mais expressivo": "expressive" },
+  dribbling: { Desencorajar: "discourage", Encorajar: "encourage" },
   timeWasting: { "Com menos frequência": "lessOften", "Com mais frequência": "moreOften" },
-  buildUp: { "Sair da pressão": "playThroughPress" },
-  goalKicks: { Curta: "short", Curtos: "short", Longa: "long", Longos: "long" },
+  buildUp: { "Sair da pressão": "playThroughPress", "Iludir a pressão": "bypassPress" },
+  goalKicks: { Curta: "short", Mista: "balanced", Longa: "long" },
+  gkDistributionSpeed: { "Diminuir ritmo de jogo": "slow", "Distribuir Rapidamente": "quick" },
   patience: { "Levar a Bola até à Área": "workIntoBox" },
-  passReception: { "Passar para o espaço": "space" },
-  crossingStyle: { "Cruzamentos Rasteiros": "low" },
+  passReception: { "Passar bola para os pés": "feet", "Passar para o espaço": "space" },
+  progressThrough: { Flancos: "flanks" },
+  crossingStyle: { "Cruzamentos Rasteiros": "low", "Cruzamentos Tensos": "whipped", "Cruzamentos Largos": "floated" },
+  crossEngagement: {
+    "Impedir cruzamentos": "stop",
+    "Convidar aos cruzamentos": "invite",
+    "Convidar à realização de cruzamentos": "invite",
+  },
 }
 
 const neutralLabels = new Set(["equilibrado", "equilibrada", "normal", "padrão"])
@@ -309,13 +329,18 @@ function dropExplained(changes: TacticChange[]): TacticChange[] {
 
 // ── Individual instructions read from a player's panel ──────────────────
 
-/** Option text (FM27 PT, lower case) of a player's instruction → tag used by the analysis, where known. */
+/**
+ * Option text (FM27 PT, lower case) of a player's instruction → tag used by the analysis. Checked against the
+ * game's translation tables like gameOptionLabels ("Encurtar Linhas" = Sit Narrower, "Cortar Para Dentro" =
+ * Cut Inside With Ball; the game writes "Fazer Mais Arrancadas." with a full stop).
+ */
 const playerInstructionTags: Array<[iconPrefix: string, label: string, tag: PlayerInstructionTag]> = [
   ["player-instructions-in-possession-dribbling-frequency", "fintar menos", "dribbleLess"],
   ["player-instructions-in-possession-dribbling-frequency", "fintar mais", "dribbleMore"],
   ["player-instructions-in-possession-shooting", "rematar menos", "shootLess"],
   ["player-instructions-in-possession-shooting", "rematar mais", "shootMore"],
   ["player-instructions-in-possession-forward-runs", "fazer mais arrancadas", "moreForwardRuns"],
+  ["player-instructions-in-possession-forward-runs", "fazer mais arrancadas.", "moreForwardRuns"],
   ["player-instructions-in-possession-forward-runs", "fazer menos corridas", "fewerForwardRuns"],
   ["pi_in_possession-passing-risk", "correr mais riscos", "moreRisk"],
   ["pi_in_possession-passing-risk", "correr menos riscos", "lessRisk"],

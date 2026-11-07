@@ -41,6 +41,11 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   deveres "Defender"/"Atacar" têm o mesmo texto que duas mentalidades — por isso a mentalidade só é aceite em 3 padrões
   (número 1–7 ao lado do nome; barra redesenhada ≤ 2 s após `ConfirmTacticalChanges` com alvo `MatchTactic`; valor
   mostrado antes do jogo). O jogo também confirma sozinho no registo `match` (intervalo): ignorar.
+- **Textos do jogo**: as traduções oficiais estão em `<FM27>/data/game_simulation/languages.fmf` (contentor zstd, não
+  cifrado); `scripts/research/fm_translations.py` junta `portuguese.ltc` e `english.ltc` pelo id e diz o significado de
+  um texto PT. Só acrescentar a `gameOptionLabels`/`playerInstructionTags` (uiTactic.ts) textos vistos no jogo ou cujas
+  traduções inglesas apontem todas para a mesma opção. As táticas exportadas (`Documents/.../tactics/*.fmf`, magia
+  `afe.`) estão cifradas — não ler.
 - **Calibração**: os limiares das regras foram recalibrados com 9 jogos (18 atuações, `samples/`, nov.–dez. 2026). Medianas de referência:
   xG/remate 0,10 · cruzamentos certos 14% · ações ofensivas pelo centro 26% · altura média das ações defensivas 31%
   (a nossa pressão alta: 33–39%; nunca chega a 40%) · perdas no próprio terço ~8 por jogo com saída curta.
