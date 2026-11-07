@@ -32,6 +32,9 @@ internal sealed class ArchiveWriter : IDisposable
     internal const byte EndRecord = 4;
     internal const byte MetadataDeltaRecord = 5;
     internal const byte RatingModelMetadataRecord = 7;
+    // Fork: tactic changes (JSON, see TacticChangeCodec). Readers skip unknown record types, so older
+    // readers ignore it and the structure version stays 2.8.
+    internal const byte TacticChangeRecord = 0x40;
     internal const uint BlockMagic = 0x324b4c42;
     internal const int MaxUncompressedChunkBytes = 16 * 1024 * 1024;
     internal const int MaxCompressedChunkBytes = 16 * 1024 * 1024;
@@ -140,6 +143,15 @@ internal sealed class ArchiveWriter : IDisposable
             _metadataRevision = revision;
             _metadataSnapshot = delta.Metadata;
             EnqueueLocked(new MetadataWorkItem(MetadataDeltaRecord, delta.Payload));
+        }
+    }
+
+    public void WriteTacticChange(TacticChange change)
+    {
+        lock (_gate)
+        {
+            if (!_accepting || _failure is not null) return;
+            EnqueueLocked(new MetadataWorkItem(TacticChangeRecord, TacticChangeCodec.Encode(change)));
         }
     }
 

@@ -268,7 +268,8 @@ $pluginReferences = @(
   "BepInEx.Unity.IL2CPP.dll",
   "MonoMod.Backports.dll",
   "MonoMod.RuntimeDetour.dll",
-  "MonoMod.Utils.dll"
+  "MonoMod.Utils.dll",
+  "0Harmony.dll"
 )
 
 New-Item -ItemType Directory -Force -Path $pluginLib | Out-Null

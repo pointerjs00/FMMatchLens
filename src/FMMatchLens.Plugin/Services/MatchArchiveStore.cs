@@ -83,6 +83,15 @@ internal sealed class MatchArchiveStore : IDisposable
         }
     }
 
+    public void WriteTacticChange(string matchId, TacticChange change)
+    {
+        lock (_gate)
+        {
+            if (_archiveWriter is null || matchId != _currentMatchId) return;
+            _archiveWriter.WriteTacticChange(change);
+        }
+    }
+
     public void Complete(string matchId)
     {
         lock (_gate)
@@ -157,7 +166,7 @@ internal sealed class MatchArchiveStore : IDisposable
             limit = Math.Clamp(limit, 1, 10_000);
             if (!ArchiveReader.TryScan(FindPath(matchId), fromTick, toTick, stride, limit, materialize: true, out var scan))
                 return false;
-            slice = new ArchivedFrameSlice(scan.Summary, scan.Metadata, scan.MetadataTimeline, scan.Frames);
+            slice = new ArchivedFrameSlice(scan.Summary, scan.Metadata, scan.MetadataTimeline, scan.Frames, scan.TacticChanges);
             return true;
         }
     }
@@ -315,4 +324,5 @@ internal sealed record ArchivedFrameSlice(
     MatchArchiveSummary Archive,
     RealtimeMatchMetadata? Metadata,
     IReadOnlyList<RealtimeMatchMetadata> MetadataTimeline,
-    IReadOnlyList<RealtimeTickFrame> Frames);
+    IReadOnlyList<RealtimeTickFrame> Frames,
+    IReadOnlyList<TacticChange> TacticChanges);

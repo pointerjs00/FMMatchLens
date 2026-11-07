@@ -190,6 +190,9 @@ internal sealed class LocalApiServer : IDisposable
                         _timeline.GetFormationTimeline(fromIndex, formationLimit),
                         cancellationToken).ConfigureAwait(false);
                     break;
+                case "/api/match/tactics":
+                    await WriteJsonAsync(context.Response, _timeline.GetTacticChanges(), cancellationToken).ConfigureAwait(false);
+                    break;
                 case "/api/match/status":
                     await WriteJsonAsync(context.Response, _timeline.GetStatus(), cancellationToken).ConfigureAwait(false);
                     break;

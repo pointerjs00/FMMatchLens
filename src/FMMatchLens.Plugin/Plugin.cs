@@ -15,6 +15,8 @@ public sealed class Plugin : BasePlugin
     private GameMatchTickHook? _gameMatchTickHook;
     private MatchArchiveStore? _archiveStore;
     private GraphicsAssetIndex? _graphicsAssets;
+    private TacticPauseDiff? _tacticPauseDiff;
+    private TacticObjectProbe? _tacticObjectProbe;
     private Timer? _hookRetryTimer;
     private int _isInstallingHook;
 
@@ -49,7 +51,70 @@ public sealed class Plugin : BasePlugin
         _apiServer = new LocalApiServer(realtimeTimeline, _archiveStore, _graphicsAssets);
 
         _apiServer.Start();
-        _gameMatchTickHook = new GameMatchTickHook(realtimeTimeline);
+        if (options.TrackTacticChanges.Value)
+        {
+            try
+            {
+                TacticChangeTracker.Install(realtimeTimeline);
+            }
+            catch (Exception ex)
+            {
+                PluginLogger.Warning($"Tactic tracking could not be installed: {ex.Message}");
+            }
+        }
+
+        TacticProbe? tacticProbe = null;
+        if (options.ResearchTacticProbe.Value)
+        {
+            tacticProbe = new TacticProbe(Path.Combine(
+                dataPath,
+                "research",
+                $"tactic-probe-{DateTime.Now:yyyyMMdd-HHmmss}.log"));
+            PluginLogger.Warning($"Research.TacticProbe is ON; writing tactic memory diffs to {tacticProbe.LogPath}.");
+        }
+
+        TacticSignatureScan? tacticScan = null;
+        if (options.ResearchTacticScan.Value)
+        {
+            tacticScan = new TacticSignatureScan(Path.Combine(
+                dataPath,
+                "research",
+                $"tactic-scan-{DateTime.Now:yyyyMMdd-HHmmss}.log"));
+            PluginLogger.Warning($"Research.TacticScan is ON; writing tactic signature scans to {tacticScan.LogPath}.");
+        }
+
+        _gameMatchTickHook = new GameMatchTickHook(realtimeTimeline, tacticProbe, tacticScan);
+        if (options.ResearchTacticObjects.Value)
+        {
+            _tacticObjectProbe = new TacticObjectProbe(
+                Path.Combine(dataPath, "research", $"tactic-objects-{DateTime.Now:yyyyMMdd-HHmmss}.log"));
+            _gameMatchTickHook.ObjectProbe = _tacticObjectProbe;
+            PluginLogger.Warning($"Research.TacticObjects is ON; log: {_tacticObjectProbe.LogPath}.");
+        }
+        if (options.ResearchTacticEvents.Value)
+        {
+            var clockHook = _gameMatchTickHook;
+            try
+            {
+                TacticEventTap.Install(
+                    Path.Combine(dataPath, "research", $"tactic-events-{DateTime.Now:yyyyMMdd-HHmmss}.log"),
+                    () => clockHook.CurrentClock());
+                PluginLogger.Warning($"Research.TacticEvents is ON; log: {TacticEventTap.LogPath}.");
+            }
+            catch (Exception ex)
+            {
+                PluginLogger.Warning($"Research.TacticEvents could not be installed: {ex.Message}");
+            }
+        }
+
+        if (options.ResearchTacticPauseDiff.Value)
+        {
+            var hook = _gameMatchTickHook;
+            _tacticPauseDiff = new TacticPauseDiff(
+                Path.Combine(dataPath, "research", $"tactic-pausediff-{DateTime.Now:yyyyMMdd-HHmmss}.log"),
+                () => hook.CurrentKnownObjects());
+            PluginLogger.Warning($"Research.TacticPauseDiff is ON (F9 snapshot, F11 analyse); log: {_tacticPauseDiff.LogPath}.");
+        }
         if (!_gameMatchTickHook.Start())
         {
             if (_gameMatchTickHook.ShouldRetry)
@@ -69,6 +134,10 @@ public sealed class Plugin : BasePlugin
         _hookRetryTimer?.Dispose();
         _hookRetryTimer = null;
         _gameMatchTickHook?.Stop();
+        _tacticPauseDiff?.Dispose();
+        _tacticObjectProbe?.Dispose();
+        TacticEventTap.Dispose();
+        TacticChangeTracker.Uninstall();
         _apiServer?.Stop();
         _archiveStore?.Dispose();
         PluginLogger.Info($"{ProjectMetadata.Name} stopped.");

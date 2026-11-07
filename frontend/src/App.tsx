@@ -49,6 +49,7 @@ import {
   saveBackendUrl,
 } from "@/api/backend"
 import { parseLocalArchive } from "@/api/localArchive"
+import { rememberTacticChanges } from "@/features/analysis/tacticChangeRecords"
 import { preprocessReplayArchive } from "@/api/replay/replayPreprocessor"
 import { buildInitialReplaySnapshot } from "@/api/replay/replaySession"
 import type { ReplayArchive } from "@/api/replay/replayTypes"
@@ -276,6 +277,7 @@ export function App() {
         throw new Error(t("timeline.chooseArchive"))
       }
       const parsed = await parseLocalArchive(buffer, fileName)
+      rememberTacticChanges(parsed.archive.matchId, parsed.tacticChanges)
       return preprocessReplayArchive({
         summary: parsed.archive,
         metadata: parsed.metadata,

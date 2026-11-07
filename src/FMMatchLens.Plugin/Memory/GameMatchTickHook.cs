@@ -115,11 +115,19 @@ internal sealed class GameMatchTickHook : IDisposable
     private bool _started;
     private bool _buildRejected;
 
-    public GameMatchTickHook(RealtimeMatchTimeline timeline)
+    public GameMatchTickHook(
+        RealtimeMatchTimeline timeline,
+        TacticProbe? tacticProbe = null,
+        TacticSignatureScan? tacticScan = null)
     {
         _timeline = timeline;
+        _tacticProbe = tacticProbe;
+        _tacticScan = tacticScan;
         _hookDelegate = MatchUpdateHook;
     }
+
+    private readonly TacticProbe? _tacticProbe;
+    private readonly TacticSignatureScan? _tacticScan;
 
     public bool IsStarted => _started;
     public bool ShouldRetry => !_buildRejected;
@@ -251,6 +259,8 @@ internal sealed class GameMatchTickHook : IDisposable
         _detour = null;
         _original = null;
         _started = false;
+        _tacticProbe?.Dispose();
+        _tacticScan?.Dispose();
         _playerUids.Invalidate();
         ClearRatingCaptureState();
         PluginLogger.Debug("GAME_MATCH match-update hook stopped.");
@@ -1359,6 +1369,117 @@ internal sealed class GameMatchTickHook : IDisposable
         return float.IsFinite(value) ? value : 0f;
     }
 
+    /// <summary>Research-only probe of the engine's per-player tactic objects (Research.TacticObjects).</summary>
+    public TacticObjectProbe? ObjectProbe { get; set; }
+
+    private GameMatchTickRecord? _latestResearchRecord;
+    private readonly object _researchGate = new();
+
+    /// <summary>Match clock of the latest record ("mm:ss tick N"), for research logs on other threads.</summary>
+    public string CurrentClock()
+    {
+        GameMatchTickRecord? record;
+        lock (_researchGate) record = _latestResearchRecord;
+        if (record is not { } value) return "sem jogo";
+        var seconds = Math.Max(0, value.DisplayTick) / 4;
+        return $"{seconds / 60:00}:{seconds % 60:00} tick {value.Tick}";
+    }
+
+    /// <summary>Known structures of the current match, for research tools on other threads.</summary>
+    public IReadOnlyList<KnownObject> CurrentKnownObjects()
+    {
+        GameMatchTickRecord? record;
+        lock (_researchGate) record = _latestResearchRecord;
+        return record is { } value ? CollectKnownObjects(value) : Array.Empty<KnownObject>();
+    }
+
+    private void TryRunTacticProbe(nint match)
+    {
+        if (!_candidates.TryGetValue(match, out var state) || !state.HasActiveRecord)
+        {
+            return;
+        }
+
+        lock (_researchGate) _latestResearchRecord = state.LastActiveRecord;
+        if (ObjectProbe is { } objectProbe)
+        {
+            try
+            {
+                objectProbe.Observe(
+                    state.LastActiveRecord,
+                    team => TryReadManagerIdentity(team, out _, out _, out var kind, out _) && kind == ManagerKind.Human);
+            }
+            catch (Exception ex)
+            {
+                QueueDiagnostic(DiagnosticSeverity.Warning, $"Tactic object probe failed: {ex.Message}");
+            }
+        }
+
+        if (_tacticProbe is null && _tacticScan is null) return;
+
+        if (_tacticScan is not null)
+        {
+            try
+            {
+                var record = state.LastActiveRecord;
+                _tacticScan.Observe(record, () => CollectKnownObjects(record));
+            }
+            catch (Exception ex)
+            {
+                QueueDiagnostic(DiagnosticSeverity.Warning, $"Tactic scan failed to start: {ex.Message}");
+            }
+        }
+
+        if (_tacticProbe is null) return;
+        try
+        {
+            _tacticProbe.Observe(
+                state.LastActiveRecord,
+                team => TryReadManagerIdentity(team, out _, out _, out var kind, out _) && kind == ManagerKind.Human,
+                matchPlayer =>
+                {
+                    if (!_memoryReader.TryReadPointer(matchPlayer + Offsets.MatchPlayer.Person, out var person) || person == default)
+                        return null;
+                    var common = ReadPersonName(person, Offsets.Person.CommonName);
+                    return !string.IsNullOrWhiteSpace(common) ? common : ReadPersonName(person, Offsets.Person.SecondName);
+                });
+        }
+        catch (Exception ex)
+        {
+            QueueDiagnostic(DiagnosticSeverity.Warning, $"Tactic probe failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Structures the tactic scan uses to name pointer holders (match, teams, managers, players).</summary>
+    private List<KnownObject> CollectKnownObjects(GameMatchTickRecord record)
+    {
+        var known = new List<KnownObject> { new("GameMatch", record.MatchAddress, 0x15600) };
+        foreach (var (side, team, count) in new[]
+                 {
+                     ("casa", record.HomeTeam, (int)record.HomePlayerCount),
+                     ("fora", record.AwayTeam, (int)record.AwayPlayerCount)
+                 })
+        {
+            if (team == default) continue;
+            known.Add(new KnownObject($"Team[{side}]", team, 0x3000));
+            if (_memoryReader.TryReadPointer(team + Offsets.Team.Manager, out var manager) && manager != default)
+            {
+                known.Add(new KnownObject($"Team[{side}].Manager", manager, 0x1000));
+            }
+
+            for (var slot = 0; slot < count; slot++)
+            {
+                if (_memoryReader.TryReadPointer(team + Offsets.Team.PlayerTable + slot * IntPtr.Size, out var player) &&
+                    player != default)
+                {
+                    known.Add(new KnownObject($"Jogador[{side} {slot:00}]", player, 0x2000));
+                }
+            }
+        }
+
+        return known;
+    }
+
     private void TryCapturePlayerMetadata(nint match)
     {
         var captureTimestamp = Stopwatch.GetTimestamp();
@@ -2067,6 +2188,7 @@ internal sealed class GameMatchTickHook : IDisposable
             if (selectedAnimated != default)
             {
                 TryCapturePlayerMetadata(selectedAnimated);
+                TryRunTacticProbe(selectedAnimated);
             }
 
             Volatile.Write(ref _drainStage, (int)DrainStage.MatchEnd);

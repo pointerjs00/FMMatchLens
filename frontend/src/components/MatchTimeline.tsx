@@ -17,6 +17,10 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import type { ArchivePage, ArchiveSummary } from "@/api/archiveTypes"
 import type { RealtimeFrame, RealtimeMatchMetadata } from "@/api/realtimeMatch"
 import { parseLocalArchive } from "@/api/localArchive"
+import {
+  rememberTacticChanges,
+  type TacticChange,
+} from "@/features/analysis/tacticChangeRecords"
 import type { ReplayArchive } from "@/api/replay/replayTypes"
 import type { ReplayMotionSource } from "@/api/replay/replayMotionSource"
 import { useReplaySession } from "@/hooks/useReplaySession"
@@ -52,6 +56,8 @@ type ArchiveSlice = {
   metadata?: RealtimeMatchMetadata
   metadataTimeline?: RealtimeMatchMetadata[]
   frames: readonly RealtimeFrame[]
+  /** Fork: tactic changes recorded by the plugin (same list on every page). */
+  tacticChanges?: TacticChange[]
 }
 
 type MatchTimelineProps = {
@@ -238,6 +244,7 @@ export function MatchTimeline({
           const page = (await response.json()) as ArchiveSlice
           loadedSummary = page.archive
           loadedMetadata ??= page.metadata
+          rememberTacticChanges(page.archive.matchId, page.tacticChanges)
           if (
             loadedMetadataTimeline.length === 0 &&
             page.metadataTimeline?.length
@@ -471,6 +478,7 @@ export function MatchTimeline({
         file.name
       )
       if (requestId !== localArchiveRequestRef.current) return
+      rememberTacticChanges(parsed.archive.matchId, parsed.tacticChanges)
       const prepared = await prepareReplay({
         summary: parsed.archive,
         metadata: parsed.metadata,

@@ -9,7 +9,8 @@ internal sealed record ArchiveScanResult(
     MatchArchiveSummary Summary,
     RealtimeMatchMetadata? Metadata,
     IReadOnlyList<RealtimeMatchMetadata> MetadataTimeline,
-    IReadOnlyList<RealtimeTickFrame> Frames);
+    IReadOnlyList<RealtimeTickFrame> Frames,
+    IReadOnlyList<TacticChange> TacticChanges);
 
 internal static class ArchiveReader
 {
@@ -35,6 +36,7 @@ internal static class ArchiveReader
             var header = ReadHeader(stream);
             var blocks = new List<BlockReference>();
             var metadataTimeline = new List<RealtimeMatchMetadata>();
+            var tacticChanges = new List<TacticChange>();
             RealtimeMatchMetadata? metadata = null;
             RatingModelMetadata? ratingModelMetadata = null;
             uint metadataRevision = 0;
@@ -93,6 +95,10 @@ internal static class ArchiveReader
                                 throw new ArchiveFormatException("duplicate_rating_model", "Archive contains more than one rating model metadata record.");
                             ratingModelMetadata = ArchiveFrameCodec.DecodeRatingModelMetadata(
                                 ArchiveBinary.ReadLengthPrefixedPayload(reader, 32));
+                            break;
+                        case ArchiveWriter.TacticChangeRecord:
+                            if (TacticChangeCodec.Decode(ArchiveBinary.ReadLengthPrefixedPayload(reader, 64 * 1024)) is { } change)
+                                tacticChanges.Add(change);
                             break;
                         case ArchiveWriter.ChunkRecord:
                             var block = ReadBlockReference(stream, reader, recordStart, header.StructureMinor);
@@ -189,7 +195,8 @@ internal static class ArchiveReader
                     metadata?.Competition?.PrimaryColour, metadata?.Competition?.SecondaryColour, metadata?.Competition?.TertiaryColour),
                 metadata,
                 metadataTimeline.ToArray(),
-                frames);
+                frames,
+                TacticChangeCodec.Merge(tacticChanges));
             return true;
         }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException or OverflowException)

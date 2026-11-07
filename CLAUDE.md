@@ -15,6 +15,7 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   - `roles.ts` — atributos (escala), traits, papéis → atributos-chave, nomes PT dos papéis e posições.
   - `tacticProfile.ts` — instruções de equipa e individuais (o plugin NÃO as lê; são introduzidas no separador "Tática" e guardadas em `localStorage`). Tática por omissão: "teste2".
   - `engine.ts` — regras que produzem `Insight`s (tom: problem/warning/info/good) e relatórios por jogador.
+  - `tacticChanges.ts` / `tacticChangeRecords.ts` — alterações táticas gravadas pelo plugin, tática efetiva e antes/depois.
   - `multiMatch.ts` — análise de vários `.fmlens` e agregação (padrões recorrentes, médias por jogador).
   - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).
 - `frontend/tests/analysisPlayerName.test.ts` — testes da correção dos nomes.
@@ -36,6 +37,10 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   (offset do shirt name) — corrigir lá é uma tarefa em aberto.
 - **Contra-pressão**: no log de eventos do FM as recuperações em ≤ 5 s são raras para ambas as equipas (~8%); usamos 8 s e
   limites calibrados (bom ≥ 25%, mau < 10%).
+- **Alterações táticas**: o motor só aplica uma mudança na paragem de jogo seguinte (confirmado pelo dono). Em PT, os
+  deveres "Defender"/"Atacar" têm o mesmo texto que duas mentalidades — por isso a mentalidade só é aceite em 3 padrões
+  (número 1–7 ao lado do nome; barra redesenhada ≤ 2 s após `ConfirmTacticalChanges` com alvo `MatchTactic`; valor
+  mostrado antes do jogo). O jogo também confirma sozinho no registo `match` (intervalo): ignorar.
 - **Calibração**: os limiares das regras foram recalibrados com 9 jogos (18 atuações, `samples/`, nov.–dez. 2026). Medianas de referência:
   xG/remate 0,10 · cruzamentos certos 14% · ações ofensivas pelo centro 26% · altura média das ações defensivas 31%
   (a nossa pressão alta: 33–39%; nunca chega a 40%) · perdas no próprio terço ~8 por jogo com saída curta.
@@ -68,9 +73,19 @@ Se `npm ci` ficar parado: o `package-lock.json` aponta muitos pacotes para `regi
 
 ## Próximos passos (roadmap)
 
-1. **Plugin: ler as instruções de equipa ao vivo** (mentalidade, linha, pressão, ritmo, largura…) e as mudanças durante o jogo,
-   para deixar de depender do separador "Tática". Já existe leitura de `PlayerTacticalAssignment` e uma referência a
-   `_instructionOffset` no plugin — começar por aí. Exige o jogo aberto e `Logging.Mode = debug`.
+1. **Tática ao vivo** — feito em parte (nov. 2026). A tática aplicada pelo motor não foi encontrada em memória (17 sessões,
+   `docs/tactic-offsets.md`). Em vez disso, `Memory/TacticChangeTracker.cs` (opção `Tactics.TrackChanges`, ligada por
+   omissão) lê o que a interface envia ao jogo (`GameInteropSubsystem.SendEvent` e `GamePlugin.PerformChannelActions`,
+   via Harmony — **só métodos sem argumentos struct**, senão o jogo crasha) e regista: mentalidade (valor absoluto 1–7),
+   mudanças rápidas de instruções de equipa (id `TacticTeamInstructions` + passos ±), passos de instruções individuais
+   (jogador/instrução por descodificar), trocas/substituições e confirmações sem conteúdo identificado. O tick de
+   aplicação (`appliedTick`) é a primeira paragem depois da escolha (bola fora ou parada 2 s). Gravado como registo
+   `0x40` do `.fmlens` (JSON `{"v":1,"change":…}`, repetido quando é aplicado; leitores guardam o último por `sequence`)
+   e exposto em `/api/match/tactics` e em `tacticChanges` de `/api/archives/{id}/frames`. No painel:
+   `features/analysis/tacticChanges.ts` (tática efetiva = separador "Tática" + alterações; antes/depois por paragem) e
+   separador "Alterações". Validado repetindo os logs reais das sessões 11–17 no rastreador (24/24 mentalidades).
+   Falta: instruções alteradas no ecrã completo de táticas (só aparece "confirmado"), descodificar o `DynamicReference`
+   das instruções individuais, tática da IA, tática de partida automática.
 2. Plugin: corrigir a leitura de `shirtName` em FM27.
 3. ~~Análise de vários jogos diretamente a partir da API do plugin~~ — feito: botão "Carregar do plugin" no separador
    "Vários jogos" (`listServerArchives` / `analyseServerArchive` em `multiMatch.ts`; frames em páginas de 2 400, ~12 s por jogo).

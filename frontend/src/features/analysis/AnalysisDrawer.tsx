@@ -44,13 +44,24 @@ import {
   type TacticProfile,
 } from "@/features/analysis/tacticProfile"
 import { slotLabel } from "@/features/analysis/roles"
+import {
+  applyTacticChanges,
+  archivedTacticChanges,
+  changesUpTo,
+  fetchLiveTacticChanges,
+  tacticMoments,
+  type ComparisonRow,
+  type TacticChange,
+  type TacticMoment,
+} from "@/features/analysis/tacticChanges"
 
-type TabId = "match" | "players" | "tactic" | "season"
+type TabId = "match" | "players" | "changes" | "tactic" | "season"
 type WindowMode = "full" | "recent"
 
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: "match", label: "Jogo" },
   { id: "players", label: "Jogadores" },
+  { id: "changes", label: "Alterações" },
   { id: "tactic", label: "Tática" },
   { id: "season", label: "Vários jogos" },
 ]
@@ -77,6 +88,32 @@ function useSampledMatch(match: MatchSnapshot, active: boolean, intervalMs = 2_0
   return active && stale ? match : sampled
 }
 
+/**
+ * Tactical changes of the match on screen: from the archive it was loaded from, or polled from the
+ * plugin while the match is live.
+ */
+function useTacticChanges(match: MatchSnapshot, active: boolean, apiBase?: string, connectionEnabled?: boolean) {
+  const [live, setLive] = useState<{ matchId?: string | null; changes: TacticChange[] }>()
+  const archived = archivedTacticChanges(match.matchId)
+  const polling = active && !archived && connectionEnabled && !!apiBase
+  useEffect(() => {
+    if (!polling || !apiBase) return
+    const controller = new AbortController()
+    const load = () =>
+      fetchLiveTacticChanges(apiBase, controller.signal)
+        .then(setLive)
+        .catch(() => undefined) // older plugin without /api/match/tactics, or plugin closed
+    void load()
+    const timer = window.setInterval(load, 5_000)
+    return () => {
+      controller.abort()
+      window.clearInterval(timer)
+    }
+  }, [polling, apiBase])
+  if (archived) return archived
+  return live && live.matchId === match.matchId ? live.changes : undefined
+}
+
 export function AnalysisDrawer({
   match,
   open,
@@ -95,14 +132,27 @@ export function AnalysisDrawer({
   const [windowMode, setWindowMode] = useState<WindowMode>("full")
   const [profile, setProfile] = useState<TacticProfile>(loadTacticProfile)
   const sampled = useSampledMatch(match, open)
+  const tacticChanges = useTacticChanges(sampled, open, apiBase, connectionEnabled)
+  // The starting tactic of the "Tática" tab plus the changes detected by the plugin so far.
+  const effectiveProfile = useMemo(
+    () => (tacticChanges ? applyTacticChanges(profile, changesUpTo(tacticChanges, sampled)) : profile),
+    [profile, tacticChanges, sampled]
+  )
   const analysis = useMemo(
     () =>
       open
-        ? analyseMatch(sampled, profile, {
+        ? analyseMatch(sampled, effectiveProfile, {
             window: windowMode === "full" ? fullMatchWindow(sampled) : recentWindow(sampled),
           })
         : undefined,
-    [open, sampled, profile, windowMode]
+    [open, sampled, effectiveProfile, windowMode]
+  )
+  const moments = useMemo(
+    () =>
+      open && analysis && tacticChanges
+        ? tacticMoments(sampled, analysis.side, profile, tacticChanges)
+        : undefined,
+    [open, analysis, sampled, profile, tacticChanges]
   )
   const updateProfile = (next: TacticProfile) => {
     setProfile(next)
@@ -125,7 +175,7 @@ export function AnalysisDrawer({
               <DrawerTitle className="text-base font-semibold">Análise tática</DrawerTitle>
               <DrawerDescription className="text-left">
                 {analysis
-                  ? `${analysis.teamName} ${analysis.goalsFor}-${analysis.goalsAgainst} ${analysis.opponentName} · ${analysis.minute}' · tática "${profile.name}"`
+                  ? `${analysis.teamName} ${analysis.goalsFor}-${analysis.goalsAgainst} ${analysis.opponentName} · ${analysis.minute}' · tática "${profile.name}" · ${mentalityLabels[effectiveProfile.mentality]}${tacticChanges ? "" : " (do separador Tática)"}`
                   : "—"}
               </DrawerDescription>
             </div>
@@ -151,6 +201,7 @@ export function AnalysisDrawer({
           <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto select-text">
             {analysis && tab === "match" && <MatchTab analysis={analysis} />}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} />}
+            {tab === "changes" && <ChangesTab moments={moments} recorded={tacticChanges != null} />}
             {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} />}
             {tab === "season" && (
               <SeasonTab profile={profile} apiBase={apiBase} connectionEnabled={connectionEnabled} />
@@ -327,6 +378,96 @@ function InsightCard({ insight }: { insight: Insight }) {
   )
 }
 
+// ── Changes tab ──────────────────────────────────────────────────────────
+
+function ChangesTab({ moments, recorded }: { moments?: TacticMoment[]; recorded: boolean }) {
+  if (!recorded) {
+    return (
+      <p className="m-4 rounded-md bg-muted px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        Sem registo de alterações táticas para este jogo. O plugin grava-as a partir desta versão (opção
+        <span className="font-medium"> Tactics.TrackChanges</span>); jogos gravados antes não as têm.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-3 p-4">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Detetadas automaticamente pelo plugin. O FM só aplica uma alteração na paragem de jogo seguinte, por isso a
+        comparação começa no minuto em que foi <span className="font-medium">aplicada</span> e vai até à alteração
+        seguinte (ou até agora).
+      </p>
+      {moments == null || moments.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">Ainda não houve alterações neste jogo.</p>
+      ) : (
+        [...moments].reverse().map((moment, index) => <MomentCard key={`${moment.minute}-${index}`} moment={moment} />)
+      )}
+    </div>
+  )
+}
+
+function MomentCard({ moment }: { moment: TacticMoment }) {
+  const comparison = moment.comparison
+  return (
+    <article className="rounded-lg border px-3 py-2.5">
+      <header className="flex items-baseline justify-between gap-2">
+        <h4 className="text-[13px] font-semibold tabular-nums">
+          {moment.pending ? `${moment.madeMinute}' · pendente` : `${moment.minute}'`}
+        </h4>
+        <span className="text-[10px] text-muted-foreground">
+          {moment.pending
+            ? "aplica-se na próxima paragem"
+            : moment.madeMinute !== moment.minute
+              ? `feita aos ${moment.madeMinute}', aplicada aos ${moment.minute}'`
+              : "aplicada de imediato"}
+        </span>
+      </header>
+      <ul className="mt-1 space-y-0.5 text-xs">
+        {moment.lines.map((line, index) => (
+          <li key={index} className="flex gap-1.5">
+            <span className="text-primary">→</span>
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
+      {comparison && (
+        <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
+          <span className="text-muted-foreground">Antes {comparison.before.label} → depois {comparison.after.label}</span>
+          <span className="text-right text-muted-foreground">antes</span>
+          <span className="text-right text-muted-foreground">depois</span>
+          {comparison.rows.map((row) => (
+            <ComparisonLine key={row.label} row={row} />
+          ))}
+        </div>
+      )}
+      {comparison?.shortWindow && (
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
+          Menos de 8 minutos de um dos lados: os números são só indicativos.
+        </p>
+      )}
+    </article>
+  )
+}
+
+function ComparisonLine({ row }: { row: ComparisonRow }) {
+  const format = (value: number) =>
+    row.format === "pct" ? pct(value) : row.format === "int" ? value.toFixed(1) : dec(value)
+  const delta = row.after - row.before
+  const relevant = Math.abs(delta) > (row.format === "pct" ? 0.03 : row.format === "int" ? 1 : 0.05)
+  const tone =
+    !relevant || row.better === 0
+      ? ""
+      : delta * row.better > 0
+        ? "text-status-positive"
+        : "text-status-negative"
+  return (
+    <>
+      <span>{row.label}</span>
+      <span className="text-right">{format(row.before)}</span>
+      <span className={cn("text-right font-medium", tone)}>{format(row.after)}</span>
+    </>
+  )
+}
+
 // ── Players tab ──────────────────────────────────────────────────────────
 
 function PlayersTab({ analysis }: { analysis: MatchAnalysis }) {
@@ -429,8 +570,10 @@ function TacticTab({ profile, onChange }: { profile: TacticProfile; onChange: (p
   return (
     <div className="space-y-5 p-4">
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        O plugin lê a formação e os papéis ao vivo, mas não as instruções de equipa. Indica-as aqui; ficam guardadas
-        neste browser e a análise passa a usá-las de imediato. Se mudares instruções durante o jogo, muda-as aqui também.
+        Tática de partida. O plugin lê a formação e os papéis, e deteta as alterações feitas durante o jogo
+        (mentalidade, mudanças rápidas de instruções de equipa, substituições); não consegue ler a tática em si.
+        Indica-a aqui uma vez: fica guardada neste browser e a análise aplica-lhe as alterações detetadas
+        (separador "Alterações"). Mudanças feitas no ecrã completo de instruções não são identificadas.
       </p>
 
       <div className="grid grid-cols-2 gap-3">

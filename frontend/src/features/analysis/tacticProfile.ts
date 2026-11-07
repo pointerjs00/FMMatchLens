@@ -1,7 +1,7 @@
 /**
- * Team instructions are not captured by the plugin (only formation, roles and
- * duties are). The manager describes them once here; the analysis engine
- * cross-references them with what actually happens on the pitch.
+ * The starting tactic. The plugin cannot read the tactic itself, only the changes made during a match
+ * (mentality, quick changes of team instructions…, see tacticChanges.ts). The manager describes the
+ * starting tactic once here; the panel applies the detected changes on top of it.
  */
 
 export type InstructionOption = { value: string; label: string }
@@ -82,7 +82,7 @@ export const teamInstructionDefinitions: InstructionDefinition[] = [
   { id: "shotsFromDistance", label: "Remates de longe", phase: "inPossession", defaultValue: "balanced",
     options: [o("less", "Menos"), o("balanced", "Equilibrado"), o("more", "Mais")] },
   { id: "tempo", label: "Ritmo", phase: "inPossession", defaultValue: "balanced",
-    options: [o("muchLower", "Muito mais baixo"), o("lower", "Mais baixo"), o("balanced", "Equilibrado"), o("higher", "Mais alto"), o("muchHigher", "Muito mais alto")] },
+    options: [o("muchLower", "Muito mais lento"), o("lower", "Mais lento"), o("balanced", "Equilibrado"), o("higher", "Mais rápido"), o("muchHigher", "Muito mais rápido")] },
   { id: "timeWasting", label: "Queimar tempo", phase: "inPossession", defaultValue: "balanced",
     options: [o("lessOften", "Menos vezes"), o("balanced", "Equilibrado"), o("moreOften", "Mais vezes")] },
   { id: "crossEngagement", label: "Oposição aos cruzamentos", phase: "outOfPossession", defaultValue: "balanced",
@@ -155,21 +155,22 @@ export type TacticProfile = {
   players: Record<string, PlayerInstructionTag[]>
 }
 
+/** As in FM27 PT (match bar). */
 export const mentalityLabels: Record<TacticProfile["mentality"], string> = {
-  veryDefensive: "Muito defensiva",
-  defensive: "Defensiva",
+  veryDefensive: "Muito Defensiva",
+  defensive: "Defender",
   cautious: "Cautelosa",
   balanced: "Equilibrada",
   positive: "Positiva",
-  attacking: "Ofensiva",
-  veryAttacking: "Muito ofensiva",
+  attacking: "Atacar",
+  veryAttacking: "Muito Atacante",
 }
 
-/** "teste2" — the tactic used by Benfica (Vertical Tiki-Taka, Balanced). */
+/** "teste2" — the tactic used by Benfica (Vertical Tiki-Taka, Positiva; checked in game, Nov 2026). */
 export const defaultTacticProfile: TacticProfile = {
   name: "teste2",
   style: "Tiki-Taka Vertical",
-  mentality: "balanced",
+  mentality: "positive",
   formationInPossession: "4-1-2-2-1",
   formationOutOfPossession: "4-1-4-1",
   team: {
@@ -190,7 +191,7 @@ export const defaultTacticProfile: TacticProfile = {
     setPieces: "keepInPlay",
     progressThrough: "middle",
     shotsFromDistance: "balanced",
-    tempo: "lower",
+    tempo: "higher",
     timeWasting: "lessOften",
     crossEngagement: "balanced",
     defensiveLine: "higher",

@@ -33,6 +33,11 @@
       <HintPath>lib/MonoMod.Utils.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- HarmonyX ships with BepInEx 6 (BepInEx/core/0Harmony.dll); used only by research hooks. -->
+    <Reference Include="0Harmony">
+      <HintPath>lib/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="GenerateProjectMetadata" BeforeTargets="CoreCompile">

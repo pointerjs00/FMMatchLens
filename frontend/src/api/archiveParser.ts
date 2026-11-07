@@ -10,6 +10,11 @@ import type {
   RealtimeTeamMetadata,
 } from "@/api/realtimeMatch"
 import type { ParsedLocalArchive } from "@/api/localArchive"
+import {
+  decodeTacticChangeRecord,
+  mergeTacticChanges,
+  type TacticChange,
+} from "@/features/analysis/tacticChangeRecords"
 import type { PlayerAttributes, PlayerPositionFamiliarities, PlayerProfile, PlayerSeasonDetailedStats, PlayerSeasonStats, PlayerSeasonStatsSlot, PlayerTacticalAssignment, TeamSide } from "@/types/match"
 import { playerPositionLabels } from "@/types/match"
 import {
@@ -30,6 +35,8 @@ const finalIndexRecord = 3
 const endRecord = 4
 const metadataDeltaRecord = 5
 const ratingModelMetadataRecord = 7
+/** Fork: tactic changes (JSON), see features/analysis/tacticChanges.ts. */
+const tacticChangeRecord = 0x40
 const blockMagic = 0x324b4c42
 const maxRecordBytes = 4 * 1024 * 1024
 const maxChunkBytes = 16 * 1024 * 1024
@@ -79,6 +86,7 @@ export async function parseArchiveFile(buffer: ArrayBuffer, fileName: string): P
   let finalSummary: FinalSummary | undefined
   let endedUnixMilliseconds: number | undefined
   let ratingModelMetadata: RatingModelMetadata | undefined
+  const tacticChanges: TacticChange[] = []
 
   while (!reader.atEnd) {
     const recordStart = reader.offset
@@ -108,6 +116,9 @@ export async function parseArchiveFile(buffer: ArrayBuffer, fileName: string): P
       } else if (recordType === ratingModelMetadataRecord) {
         if (ratingModelMetadata != null) throw new ArchiveError("Rating model metadata is duplicated")
         ratingModelMetadata = readRatingModelMetadata(new ArchiveBufferReader(readRecordPayload(reader, 32)))
+      } else if (recordType === tacticChangeRecord) {
+        const change = decodeTacticChangeRecord(readRecordPayload(reader, 64 * 1024))
+        if (change) tacticChanges.push(change)
       } else if (recordType === finalIndexRecord) {
         finalSummary = readFinalIndex(readRecordPayload(reader, maxRecordBytes), blocks)
       } else if (recordType === endRecord) {
@@ -165,6 +176,7 @@ export async function parseArchiveFile(buffer: ArrayBuffer, fileName: string): P
     metadataTimeline,
     frames,
     ratingConfiguration: observedRatingWeightConfiguration,
+    tacticChanges: mergeTacticChanges(tacticChanges),
   }
 }
 
