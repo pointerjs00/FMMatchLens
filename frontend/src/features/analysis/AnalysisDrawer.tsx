@@ -75,6 +75,7 @@ import {
   collectKeeps,
   collectSuggestions,
   consolidateSuggestions,
+  keepSuggestions,
   pendingChanges,
   followedSuggestions,
   loggedSuggestions,
@@ -302,7 +303,7 @@ export function AnalysisDrawer({
   const consolidation = useMemo(
     () =>
       analysis
-        ? consolidateSuggestions(collectSuggestions(sampled, analysis, scouting, plan), sampled, {
+        ? consolidateSuggestions([...collectSuggestions(sampled, analysis, scouting, plan), ...keepSuggestions(analysis, scouting, plan)], sampled, {
             chasingLate: plan != null && sampled.clock.minute >= 70,
           })
         : undefined,

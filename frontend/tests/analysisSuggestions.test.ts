@@ -4,6 +4,7 @@ import { duelBalance, fieldMatchups } from "@/features/analysis/matchups"
 import {
   changesMade,
   consolidateSuggestions,
+  pendingChanges,
   followedSuggestions,
   parseSuggestion,
   ruleEffects,
@@ -288,5 +289,33 @@ describe("warnings that name an option", () => {
     expect(parseSuggestion("Mudar Pontapés de Baliza: Mista (menos saídas curtas a partir dos pés dele).", match, "home")).toEqual([
       { kind: "team", id: "goalKicks", value: "balanced" },
     ])
+  })
+})
+
+describe("the current value competes with the suggestions", () => {
+  // Seen live: one rule per flank; keeping one side made the other side's rule win, back and forth.
+  const match = snapshot([])
+  const rule = (ruleId: string, action: string, weight: number): Suggestion => ({
+    ruleId,
+    ruleTitle: ruleId,
+    action,
+    weight,
+    changes: parseSuggestion(action.replace(/^Já tens (.+): mantém\.$/, "Mudar $1."), match, "home"),
+  })
+  const profileWith = (value: string) => ({ ...defaultTacticProfile, team: { ...defaultTacticProfile.team, progressThrough: value } })
+
+  it("recommends the same side whatever is set now", () => {
+    const left = (keep: boolean) => rule("opponent.dribble.left", keep ? "Já tens Avançar por: Esquerdo: mantém." : "Mudar Avançar por: Esquerdo.", 160)
+    const right = (keep: boolean) => rule("opponent.dribble.right", keep ? "Já tens Avançar por: Direito: mantém." : "Mudar Avançar por: Direito.", 158)
+    // Left set: keeping it (160) beats moving right (158): nothing to do.
+    const leftNow = consolidateSuggestions([left(true), right(false)], match)
+    expect(pendingChanges(leftNow, profileWith("left"))).toEqual([])
+    expect(leftNow.rejected.map((item) => item.label)).toEqual(["Avançar por: Direito"])
+    // Right set: moving left (160) beats keeping right (158).
+    const rightNow = consolidateSuggestions([left(false), right(true)], match)
+    expect(pendingChanges(rightNow, profileWith("right")).map((item) => item.label)).toEqual(["Avançar por: Esquerdo"])
+    // Middle: left again.
+    const middle = consolidateSuggestions([left(false), right(false)], match)
+    expect(pendingChanges(middle, profileWith("middle")).map((item) => item.label)).toEqual(["Avançar por: Esquerdo"])
   })
 })

@@ -640,3 +640,36 @@ export function pendingChanges(consolidation: Consolidation | undefined, profile
     return true
   })
 }
+
+/**
+ * Rules that back the current value ("Já tens X: mantém.") as competitors of the suggestions, with their weight,
+ * so the consolidation compares "keep it" against "change it". Without them the current value never competes
+ * and two rules on opposite flanks send the manager back and forth (seen live: "Avançar por" left ↔ right).
+ */
+export function keepSuggestions(
+  analysis: MatchAnalysis,
+  opponent?: OpponentReport,
+  plan?: GamePlan
+): Suggestion[] {
+  const out: Suggestion[] = []
+  const toneWeight = { problem: 300, warning: 200, info: 100, good: 50 } as const
+  const scan = (ruleId: string, ruleTitle: string, actions: string[], weight: number, ruleDetail?: string) => {
+    for (const action of actions) {
+      const kept = /^Já tens (.+): mantém\.$/.exec(action)
+      const setting = kept ? teamSettings.find((item) => item.pattern.test(kept[1])) : undefined
+      if (setting) out.push({ ruleId, ruleTitle, action, changes: [{ kind: "team", id: setting.id, value: setting.value }], weight, ruleDetail })
+    }
+  }
+  for (const insight of analysis.insights)
+    scan(ruleOf(insight.id, "insight"), insight.title, insight.actions, toneWeight[insight.tone] + insight.priority, insight.detail)
+  for (const exploit of [...(opponent?.exploits ?? []), ...(opponent?.tendencies ?? [])])
+    scan(
+      ruleOf(exploit.id, "opponent"),
+      exploit.title,
+      exploit.actions,
+      (exploit.tone === "warning" ? 200 : exploit.tone === "good" ? 150 : 60) + exploit.weight,
+      [exploit.detail, ...exploit.evidence].join(" · ")
+    )
+  for (const step of plan?.steps ?? []) scan(ruleOf(step.id, "plan"), `Plano para dar a volta · ${step.title}`, step.actions, 0, step.detail)
+  return out
+}
