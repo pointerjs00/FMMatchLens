@@ -13,7 +13,7 @@
     "benchmark:replay": "vitest run --config tests/vitest.benchmark.config.ts --disableConsoleIntercept",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b",
     "check:theme": "node scripts/check-theme.mjs",
     "preview": "vite preview"
   },

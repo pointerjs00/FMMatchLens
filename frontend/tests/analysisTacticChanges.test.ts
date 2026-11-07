@@ -6,7 +6,7 @@ import {
   decodeTacticChangeRecord,
   describeTacticChange,
   mergeTacticChanges,
-  tacticMoments,
+  tacticChangesReport,
   type TacticChange,
 } from "@/features/analysis/tacticChanges"
 import { defaultTacticProfile } from "@/features/analysis/tacticProfile"
@@ -103,22 +103,50 @@ describe("effective tactic", () => {
 })
 
 describe("before/after moments", () => {
+  const changes = [
+    change(1, "mentality", 0, 0, { mentality: 5, initial: true }),
+    change(2, "teamInstruction", 30, 31, { instruction: 21, steps: -3 }),
+    change(3, "swap", 30, 31),
+    change(4, "mentality", 60, 62, { mentality: 6, previousMentality: 5 }),
+    change(5, "playerInstruction", 79, null, { steps: 1, stepCount: 1 }),
+  ]
+
   it("groups changes applied at the same stoppage and compares from the applied minute", () => {
-    const moments = tacticMoments(snapshotAt(80), "home", defaultTacticProfile, [
-      change(1, "mentality", 0, 0, { mentality: 5, initial: true }),
-      change(2, "teamInstruction", 30, 31, { instruction: 21, steps: -3 }),
-      change(3, "swap", 30, 31),
-      change(4, "mentality", 60, 62, { mentality: 6, previousMentality: 5 }),
-      change(5, "playerInstruction", 79, null, { steps: 1, stepCount: 1 }),
-    ])
+    const { moments, overall } = tacticChangesReport(snapshotAt(80), "home", defaultTacticProfile, changes)
     expect(moments.map((moment) => [moment.minute, moment.madeMinute, moment.pending, moment.lines.length])).toEqual([
       [31, 30, false, 2],
       [62, 60, false, 1],
       [79, 79, true, 1],
     ])
-    expect(moments[0].comparison?.before).toMatchObject({ fromMinute: 0, toMinute: 30 })
-    expect(moments[0].comparison?.after).toMatchObject({ fromMinute: 31, toMinute: 61 })
+    expect(moments[0].comparison).toMatchObject({
+      mode: "beforeAfter",
+      before: { fromMinute: 0, toMinute: 30 },
+      after: { fromMinute: 31, toMinute: 61 },
+      perNinety: true,
+      reliable: true,
+    })
+    expect(moments[0].comparison?.rows[0].label).toBe("xG por 90'")
     expect(moments[1].comparison?.after).toMatchObject({ fromMinute: 62, toMinute: 80 })
     expect(moments[2].comparison).toBeUndefined()
+    expect(overall).toMatchObject({ fromMinute: 31, comparison: { after: { fromMinute: 31, toMinute: 80 } } })
+  })
+
+  it("shows totals without verdict colours when a side has fewer than 8 minutes", () => {
+    const { moments } = tacticChangesReport(snapshotAt(36), "home", defaultTacticProfile, changes)
+    expect(moments[0].comparison).toMatchObject({ perNinety: false, reliable: false, afterMinutes: 6 })
+    expect(moments[0].comparison?.rows[0].label).toBe("xG")
+  })
+
+  it("waits for 3 minutes after the change before comparing", () => {
+    const { moments } = tacticChangesReport(snapshotAt(32), "home", defaultTacticProfile, changes)
+    expect(moments[0].comparison).toBeUndefined()
+    expect(moments[0].tooShortMinutes).toBe(2)
+  })
+
+  it("compares with the opponent when the change came in the first minutes", () => {
+    const early = [change(1, "mentality", 0, 1, { mentality: 6, previousMentality: 5 })]
+    const { moments, overall } = tacticChangesReport(snapshotAt(20), "home", defaultTacticProfile, early)
+    expect(moments[0].comparison).toMatchObject({ mode: "vsOpponent", after: { fromMinute: 1, toMinute: 20 } })
+    expect(overall).toBeUndefined()
   })
 })

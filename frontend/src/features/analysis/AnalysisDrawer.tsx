@@ -49,9 +49,12 @@ import {
   archivedTacticChanges,
   changesUpTo,
   fetchLiveTacticChanges,
-  tacticMoments,
+  reliableComparisonMinutes,
+  tacticChangesReport,
   type ComparisonRow,
   type TacticChange,
+  type TacticChangesReport,
+  type TacticComparison,
   type TacticMoment,
 } from "@/features/analysis/tacticChanges"
 
@@ -147,10 +150,10 @@ export function AnalysisDrawer({
         : undefined,
     [open, sampled, effectiveProfile, windowMode]
   )
-  const moments = useMemo(
+  const changesReport = useMemo(
     () =>
       open && analysis && tacticChanges
-        ? tacticMoments(sampled, analysis.side, profile, tacticChanges)
+        ? tacticChangesReport(sampled, analysis.side, profile, tacticChanges)
         : undefined,
     [open, analysis, sampled, profile, tacticChanges]
   )
@@ -201,7 +204,7 @@ export function AnalysisDrawer({
           <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto select-text">
             {analysis && tab === "match" && <MatchTab analysis={analysis} />}
             {analysis && tab === "players" && <PlayersTab analysis={analysis} />}
-            {tab === "changes" && <ChangesTab moments={moments} recorded={tacticChanges != null} />}
+            {tab === "changes" && <ChangesTab report={changesReport} recorded={tacticChanges != null} />}
             {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} />}
             {tab === "season" && (
               <SeasonTab profile={profile} apiBase={apiBase} connectionEnabled={connectionEnabled} />
@@ -380,7 +383,7 @@ function InsightCard({ insight }: { insight: Insight }) {
 
 // ── Changes tab ──────────────────────────────────────────────────────────
 
-function ChangesTab({ moments, recorded }: { moments?: TacticMoment[]; recorded: boolean }) {
+function ChangesTab({ report, recorded }: { report?: TacticChangesReport; recorded: boolean }) {
   if (!recorded) {
     return (
       <p className="m-4 rounded-md bg-muted px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -389,24 +392,33 @@ function ChangesTab({ moments, recorded }: { moments?: TacticMoment[]; recorded:
       </p>
     )
   }
+  const moments = report?.moments ?? []
   return (
     <div className="space-y-3 p-4">
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         Detetadas automaticamente pelo plugin. O FM só aplica uma alteração na paragem de jogo seguinte, por isso a
         comparação começa no minuto em que foi <span className="font-medium">aplicada</span> e vai até à alteração
-        seguinte (ou até agora).
+        seguinte (ou até agora). Com menos de {reliableComparisonMinutes} minutos de um dos lados mostram-se totais,
+        sem cores: ainda é cedo para tirar conclusões.
       </p>
-      {moments == null || moments.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">Ainda não houve alterações neste jogo.</p>
-      ) : (
-        [...moments].reverse().map((moment, index) => <MomentCard key={`${moment.minute}-${index}`} moment={moment} />)
+      {moments.length === 0 && <p className="text-[11px] text-muted-foreground">Ainda não houve alterações neste jogo.</p>}
+      {report?.overall && (
+        <article className="rounded-lg border border-primary/40 px-3 py-2.5">
+          <h4 className="text-[13px] font-semibold">Efeito do conjunto das alterações</h4>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Desde a primeira alteração aplicada ({report.overall.fromMinute}') até agora, contra o período anterior.
+          </p>
+          <ComparisonTable comparison={report.overall.comparison} />
+        </article>
       )}
+      {[...moments].reverse().map((moment, index) => (
+        <MomentCard key={`${moment.minute}-${index}`} moment={moment} />
+      ))}
     </div>
   )
 }
 
 function MomentCard({ moment }: { moment: TacticMoment }) {
-  const comparison = moment.comparison
   return (
     <article className="rounded-lg border px-3 py-2.5">
       <header className="flex items-baseline justify-between gap-2">
@@ -418,7 +430,7 @@ function MomentCard({ moment }: { moment: TacticMoment }) {
             ? "aplica-se na próxima paragem"
             : moment.madeMinute !== moment.minute
               ? `feita aos ${moment.madeMinute}', aplicada aos ${moment.minute}'`
-              : "aplicada de imediato"}
+              : `feita e aplicada aos ${moment.minute}'`}
         </span>
       </header>
       <ul className="mt-1 space-y-0.5 text-xs">
@@ -429,32 +441,65 @@ function MomentCard({ moment }: { moment: TacticMoment }) {
           </li>
         ))}
       </ul>
-      {comparison && (
-        <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
-          <span className="text-muted-foreground">Antes {comparison.before.label} → depois {comparison.after.label}</span>
-          <span className="text-right text-muted-foreground">antes</span>
-          <span className="text-right text-muted-foreground">depois</span>
-          {comparison.rows.map((row) => (
-            <ComparisonLine key={row.label} row={row} />
-          ))}
-        </div>
-      )}
-      {comparison?.shortWindow && (
+      {moment.comparison && <ComparisonTable comparison={moment.comparison} />}
+      {moment.tooShortMinutes != null && (
         <p className="mt-1.5 text-[10px] text-muted-foreground">
-          Menos de 8 minutos de um dos lados: os números são só indicativos.
+          Só {moment.tooShortMinutes === 1 ? "1 minuto" : `${moment.tooShortMinutes} minutos`} desde que foi aplicada:
+          ainda não há dados para comparar.
         </p>
       )}
     </article>
   )
 }
 
-function ComparisonLine({ row }: { row: ComparisonRow }) {
-  const format = (value: number) =>
-    row.format === "pct" ? pct(value) : row.format === "int" ? value.toFixed(1) : dec(value)
+function ComparisonTable({ comparison }: { comparison: TacticComparison }) {
+  const vsOpponent = comparison.mode === "vsOpponent"
+  const minutes = (value: number) => (value === 1 ? "1 min" : `${value} min`)
+  return (
+    <>
+      <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
+        <span className="text-muted-foreground">
+          {vsOpponent
+            ? `Adversário vs nós, ${comparison.after.label}`
+            : `Antes ${comparison.before.label} → depois ${comparison.after.label}`}
+        </span>
+        <span className="text-right text-muted-foreground">
+          {vsOpponent ? "adversário" : `antes (${minutes(comparison.beforeMinutes)})`}
+        </span>
+        <span className="text-right text-muted-foreground">
+          {vsOpponent ? "nós" : `depois (${minutes(comparison.afterMinutes)})`}
+        </span>
+        {comparison.rows.map((row) => (
+          <ComparisonLine key={row.label} row={row} coloured={comparison.reliable} />
+        ))}
+      </div>
+      {vsOpponent && (
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
+          Alteração logo no início: sem período anterior, compara-se com o adversário nos mesmos minutos.
+        </p>
+      )}
+    </>
+  )
+}
+
+function formatComparisonValue(row: ComparisonRow, value: number) {
+  switch (row.format) {
+    case "pct":
+      return pct(value)
+    case "int":
+      return String(Math.round(value))
+    case "dec1":
+      return dec(value, 1)
+    default:
+      return dec(value)
+  }
+}
+
+function ComparisonLine({ row, coloured }: { row: ComparisonRow; coloured: boolean }) {
   const delta = row.after - row.before
-  const relevant = Math.abs(delta) > (row.format === "pct" ? 0.03 : row.format === "int" ? 1 : 0.05)
+  const relevant = Math.abs(delta) > (row.format === "pct" ? 0.03 : row.format === "dec" ? 0.05 : 1)
   const tone =
-    !relevant || row.better === 0
+    !coloured || !relevant || row.better === 0
       ? ""
       : delta * row.better > 0
         ? "text-status-positive"
@@ -462,8 +507,8 @@ function ComparisonLine({ row }: { row: ComparisonRow }) {
   return (
     <>
       <span>{row.label}</span>
-      <span className="text-right">{format(row.before)}</span>
-      <span className={cn("text-right font-medium", tone)}>{format(row.after)}</span>
+      <span className="text-right">{formatComparisonValue(row, row.before)}</span>
+      <span className={cn("text-right font-medium", tone)}>{formatComparisonValue(row, row.after)}</span>
     </>
   )
 }

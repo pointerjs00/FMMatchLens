@@ -191,37 +191,59 @@ export type TacticMoment = {
   pending: boolean
   lines: string[]
   comparison?: TacticComparison
+  /** Minutes played since it was applied, when still too few to compare. */
+  tooShortMinutes?: number
 }
 
 export type ComparisonRow = {
   label: string
   before: number
   after: number
-  format: "dec" | "pct" | "int"
+  format: "dec" | "dec1" | "pct" | "int"
   /** +1 if higher is better for us, −1 if lower is better, 0 if neutral. */
   better: 1 | -1 | 0
 }
 
+/**
+ * `beforeAfter`: our team before vs after. `vsOpponent`: no "before" yet (change in the first minutes), so
+ * the opponent (`before` values) vs our team (`after` values) in the same window.
+ */
 export type TacticComparison = {
+  mode: "beforeAfter" | "vsOpponent"
   before: AnalysisWindow
   after: AnalysisWindow
+  beforeMinutes: number
+  afterMinutes: number
+  /** Rates per 90 minutes (both sides long enough) or totals in each window. */
+  perNinety: boolean
+  /** Both sides long enough to read the difference as an effect (colours are shown only then). */
+  reliable: boolean
   rows: ComparisonRow[]
-  /** Fewer than this many minutes on either side: numbers are indicative only. */
-  shortWindow: boolean
 }
 
-const minimumComparisonMinutes = 8
+export type TacticChangesReport = {
+  moments: TacticMoment[]
+  /** From the first applied change until now, when there are at least two. */
+  overall?: { fromMinute: number; comparison: TacticComparison }
+}
+
+/** Below this many minutes on either side differences are noise (one shot in 2 minutes = 45 per 90). */
+export const reliableComparisonMinutes = 8
+/** Below this many minutes after a change there is nothing to compare yet. */
+const minimumComparisonMinutes = 3
+
+const windowMinutes = (window: AnalysisWindow) => Math.max(0, window.toMinute - window.fromMinute + 1)
 
 /**
  * Groups the changes applied at the same stoppage and compares the team before (since the previous
  * applied change) and after (until the next one, or now). Initial values are not moments.
  */
-export function tacticMoments(
+export function tacticChangesReport(
   match: MatchSnapshot,
   side: TeamSide,
   profile: TacticProfile,
   changes: readonly TacticChange[]
-): TacticMoment[] {
+): TacticChangesReport {
   const now = Math.max(1, match.clock.minute)
   const visible = changesUpTo(changes, match).filter((change) => !change.initial)
   const groups: TacticChange[][] = []
@@ -237,7 +259,7 @@ export function tacticMoments(
     .filter((group) => group[0].appliedTick != null)
     .map((group) => minuteOf(group[0].appliedDisplayTick) ?? 0)
 
-  return groups.map((group) => {
+  const moments = groups.map((group): TacticMoment => {
     const first = group[0]
     const pending = first.appliedTick == null
     const madeMinute = minuteOf(first.displayTick) ?? 0
@@ -251,47 +273,111 @@ export function tacticMoments(
       lines.push(describeTacticChange(change, running))
       running = applyTacticChanges(running, [change])
     }
+    if (pending) return { minute, madeMinute, pending, lines }
 
-    let comparison: TacticComparison | undefined
-    if (!pending) {
-      const previous = appliedMinutes.filter((value) => value < minute).at(-1) ?? 0
-      const next = appliedMinutes.find((value) => value > minute) ?? now + 1
-      const before: AnalysisWindow = { fromMinute: previous, toMinute: minute - 1, label: `${previous}'–${minute - 1}'` }
-      const after: AnalysisWindow = { fromMinute: minute, toMinute: Math.min(now, next - 1), label: `${minute}'–${Math.min(now, next - 1)}'` }
-      const beforeMinutes = before.toMinute - before.fromMinute + 1
-      const afterMinutes = after.toMinute - after.fromMinute + 1
-      if (beforeMinutes >= 1 && afterMinutes >= 1) {
-        comparison = {
-          before,
-          after,
-          rows: compare(match, side, before, after),
-          shortWindow: beforeMinutes < minimumComparisonMinutes || afterMinutes < minimumComparisonMinutes,
-        }
-      }
-    }
-    return { minute, madeMinute, pending, lines, comparison }
+    const previous = appliedMinutes.filter((value) => value < minute).at(-1) ?? 0
+    const next = appliedMinutes.find((value) => value > minute) ?? now + 1
+    const after = minuteWindow(minute, Math.min(now, next - 1))
+    const comparison = compareWindows(match, side, minuteWindow(previous, minute - 1), after)
+    return comparison
+      ? { minute, madeMinute, pending, lines, comparison }
+      : { minute, madeMinute, pending, lines, tooShortMinutes: windowMinutes(after) }
   })
+
+  let overall: TacticChangesReport["overall"]
+  if (appliedMinutes.length >= 2) {
+    const fromMinute = appliedMinutes[0]
+    const comparison = compareWindows(match, side, minuteWindow(0, fromMinute - 1), minuteWindow(fromMinute, now))
+    if (comparison) overall = { fromMinute, comparison }
+  }
+  return { moments, overall }
 }
 
-function per90(value: number, window: AnalysisWindow) {
-  return (value * 90) / Math.max(1, window.toMinute - window.fromMinute + 1)
+function minuteWindow(fromMinute: number, toMinute: number): AnalysisWindow {
+  return { fromMinute, toMinute, label: fromMinute === toMinute ? `${fromMinute}'` : `${fromMinute}'–${toMinute}'` }
 }
 
-function compare(match: MatchSnapshot, side: TeamSide, before: AnalysisWindow, after: AnalysisWindow): ComparisonRow[] {
-  const ours = (window: AnalysisWindow) => computeTeamMetrics(match, side, window)
-  const theirs = (window: AnalysisWindow) => computeTeamMetrics(match, opposite(side), window)
-  const [a, b, oa, ob] = [ours(before), ours(after), theirs(before), theirs(after)]
-  const rate = (metrics: TeamWindowMetrics, window: AnalysisWindow, pick: (m: TeamWindowMetrics) => number) =>
-    per90(pick(metrics), window)
+function compareWindows(
+  match: MatchSnapshot,
+  side: TeamSide,
+  before: AnalysisWindow,
+  after: AnalysisWindow
+): TacticComparison | undefined {
+  const afterMinutes = windowMinutes(after)
+  if (afterMinutes < minimumComparisonMinutes) return undefined
+  const beforeMinutes = windowMinutes(before)
+  if (beforeMinutes < minimumComparisonMinutes) {
+    // Nothing to compare with yet: the opponent against our team in the same minutes.
+    const perNinety = afterMinutes >= reliableComparisonMinutes
+    return {
+      mode: "vsOpponent",
+      before: after,
+      after,
+      beforeMinutes: afterMinutes,
+      afterMinutes,
+      perNinety,
+      reliable: perNinety,
+      rows: teamRows(
+        computeTeamMetrics(match, opposite(side), after),
+        computeTeamMetrics(match, side, after),
+        after,
+        after,
+        perNinety
+      ),
+    }
+  }
+
+  const perNinety = beforeMinutes >= reliableComparisonMinutes && afterMinutes >= reliableComparisonMinutes
+  const ours = [computeTeamMetrics(match, side, before), computeTeamMetrics(match, side, after)] as const
+  const theirs = [computeTeamMetrics(match, opposite(side), before), computeTeamMetrics(match, opposite(side), after)] as const
+  const rows = teamRows(ours[0], ours[1], before, after, perNinety)
+  // What the opponent created against us, next to our own chances.
+  rows.splice(1, 0, rateRow("xG sofrido", theirs[0].xg, theirs[1].xg, before, after, perNinety, "dec", -1))
+  rows.splice(3, 0, rateRow("Remates sofridos", theirs[0].shots, theirs[1].shots, before, after, perNinety, "int", -1))
+  const momentumBefore = momentumBalance(match, side, before)
+  const momentumAfter = momentumBalance(match, side, after)
+  if (momentumBefore != null && momentumAfter != null) {
+    rows.push({ label: "Domínio (momentum)", before: momentumBefore, after: momentumAfter, format: "dec", better: 1 })
+  }
+  return { mode: "beforeAfter", before, after, beforeMinutes, afterMinutes, perNinety, reliable: perNinety, rows }
+}
+
+function rateRow(
+  label: string,
+  before: number,
+  after: number,
+  beforeWindow: AnalysisWindow,
+  afterWindow: AnalysisWindow,
+  perNinety: boolean,
+  format: "dec" | "int",
+  better: 1 | -1
+): ComparisonRow {
+  if (!perNinety) return { label, before, after, format, better }
+  const rate = (value: number, window: AnalysisWindow) => (value * 90) / Math.max(1, windowMinutes(window))
+  return {
+    label: `${label} por 90'`,
+    before: rate(before, beforeWindow),
+    after: rate(after, afterWindow),
+    format: format === "int" ? "dec1" : "dec",
+    better,
+  }
+}
+
+/** Rows for one team in two windows (or two teams in one window, for the "vs opponent" mode). */
+function teamRows(
+  a: TeamWindowMetrics,
+  b: TeamWindowMetrics,
+  aWindow: AnalysisWindow,
+  bWindow: AnalysisWindow,
+  perNinety: boolean
+): ComparisonRow[] {
   const rows: ComparisonRow[] = [
-    { label: "xG por 90'", before: rate(a, before, (m) => m.xg), after: rate(b, after, (m) => m.xg), format: "dec", better: 1 },
-    { label: "xG sofrido por 90'", before: rate(oa, before, (m) => m.xg), after: rate(ob, after, (m) => m.xg), format: "dec", better: -1 },
-    { label: "Remates por 90'", before: rate(a, before, (m) => m.shots), after: rate(b, after, (m) => m.shots), format: "int", better: 1 },
-    { label: "Remates sofridos por 90'", before: rate(oa, before, (m) => m.shots), after: rate(ob, after, (m) => m.shots), format: "int", better: -1 },
+    rateRow("xG", a.xg, b.xg, aWindow, bWindow, perNinety, "dec", 1),
+    rateRow("Remates", a.shots, b.shots, aWindow, bWindow, perNinety, "int", 1),
     { label: "Posse (passes certos)", before: a.passShare, after: b.passShare, format: "pct", better: 0 },
     { label: "Passes certos", before: a.passAccuracy, after: b.passAccuracy, format: "pct", better: 1 },
-    { label: "Perdas de bola por 90'", before: rate(a, before, (m) => m.possessionLost), after: rate(b, after, (m) => m.possessionLost), format: "int", better: -1 },
-    { label: "Recuperações altas por 90'", before: rate(a, before, (m) => m.highRegains), after: rate(b, after, (m) => m.highRegains), format: "int", better: 1 },
+    rateRow("Perdas de bola", a.possessionLost, b.possessionLost, aWindow, bWindow, perNinety, "int", -1),
+    rateRow("Recuperações altas", a.highRegains, b.highRegains, aWindow, bWindow, perNinety, "int", 1),
   ]
   if (a.defensiveActionHeight != null && b.defensiveActionHeight != null) {
     rows.push({
@@ -301,11 +387,6 @@ function compare(match: MatchSnapshot, side: TeamSide, before: AnalysisWindow, a
       format: "pct",
       better: 0,
     })
-  }
-  const momentumBefore = momentumBalance(match, side, before)
-  const momentumAfter = momentumBalance(match, side, after)
-  if (momentumBefore != null && momentumAfter != null) {
-    rows.push({ label: "Domínio (momentum)", before: momentumBefore, after: momentumAfter, format: "dec", better: 1 })
   }
   return rows
 }

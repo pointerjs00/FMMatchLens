@@ -52,7 +52,7 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
 cd frontend
 npm ci
 npm run dev          # dashboard em modo de desenvolvimento
-npm run typecheck
+npm run typecheck    # tsc -b (o upstream tinha tsc --noEmit, que com o tsconfig raiz só de referências não verificava nada)
 npm run lint
 npx vitest run
 npm run build        # gera frontend/dist (abrir dist/index.html diretamente funciona)
