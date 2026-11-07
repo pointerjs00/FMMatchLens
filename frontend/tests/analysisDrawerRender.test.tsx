@@ -150,7 +150,7 @@ describe("instructions screen", () => {
   it("shows the game's tiles with the change suggested, the confirmed ones and the rest", () => {
     const change = {
       key: "team:progressThrough:left",
-      label: "Avançar por: Esquerda",
+      label: "Avançar por: Esquerdo",
       change: { kind: "team" as const, id: "progressThrough" as const, value: "left" },
       weight: 158,
       sources: [{ ruleId: "opponent.dribble", ruleTitle: "Prestianni ganha o 1x1 contra De la Cruz", action: "a" }],
@@ -166,7 +166,7 @@ describe("instructions screen", () => {
     expect(html).toContain("Instruções à Equipa")
     expect(html).toContain("Carácter Directo dos Passes")
     expect(html).toContain("Apoiar Corridas com Bola")
-    expect(html).toContain("→ Esquerda")
+    expect(html).toContain("→ Esquerdo")
     expect(html).toContain("Prestianni ganha o 1x1 contra De la Cruz")
     expect(html).toContain("✓ Domínio com produção ofensiva")
     expect(html).toContain("1 a mudar")

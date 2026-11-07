@@ -252,19 +252,19 @@ describe("one answer per instruction", () => {
   it("keeps the strongest of two values for one instruction and of opposite individual instructions", () => {
     const result = consolidateSuggestions(
       [
-        suggestion("opponent.dribble", "Mudar Avançar por: Esquerda.", 158),
-        suggestion("opponent.booked", "Mudar Avançar por: Direita.", 157),
+        suggestion("opponent.dribble", "Mudar Avançar por: Esquerdo.", 158),
+        suggestion("opponent.booked", "Mudar Avançar por: Direito.", 157),
         suggestion("opponent.duel-won", 'Dar "Fintar mais" a Schjelderup.', 160),
         suggestion("player", 'Dar "Fintar menos" a Schjelderup.', 355),
       ],
       match
     )
-    expect(result.changes.map((item) => item.label)).toEqual(['Dar "Fintar menos" a Schjelderup', "Avançar por: Esquerda"])
+    expect(result.changes.map((item) => item.label)).toEqual(['Dar "Fintar menos" a Schjelderup', "Avançar por: Esquerdo"])
     expect(result.rejected.map((item) => [item.label, item.lostTo.label])).toEqual([
-      ["Avançar por: Direita", "Avançar por: Esquerda"],
+      ["Avançar por: Direito", "Avançar por: Esquerdo"],
       ['Dar "Fintar mais" a Schjelderup', 'Dar "Fintar menos" a Schjelderup'],
     ])
-    expect(result.notes.get("Mudar Avançar por: Direita.")).toMatch(/^Em conflito com "Avançar por: Esquerda"/)
+    expect(result.notes.get("Mudar Avançar por: Direito.")).toMatch(/^Em conflito com "Avançar por: Esquerdo"/)
   })
 
   it("losing late, caution gives way to the plan's call for risk", () => {
