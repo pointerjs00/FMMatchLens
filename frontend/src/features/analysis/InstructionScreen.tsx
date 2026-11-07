@@ -39,6 +39,8 @@ export function InstructionScreen({
   const changes = new Map<TeamInstructionId, ConsolidatedChange>()
   for (const item of consolidation?.changes ?? []) {
     if (item.change.kind !== "team") continue
+    // Already set that way (a rule that does not look at the current value): nothing to change.
+    if (profile.team[item.change.id] === item.change.value) continue
     // The overlap choice lives on the same tile as the underlap one.
     changes.set(item.change.id === "overlap" ? "underlap" : item.change.id, item)
   }

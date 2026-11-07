@@ -284,4 +284,27 @@ describe("a tile drawn in passing", () => {
     expect(applyTacticChanges(defaultTacticProfile, changes).team.lineOfEngagement).toBe("highPress")
     expect(changes.filter((change) => change.kind === "teamInstruction")).toHaveLength(1)
   })
+
+  it("is ignored when its text is another instruction's option, and reads the game's own option texts", () => {
+    const at = (sequence: number, icon: string, label: string): TacticChange => ({
+      sequence,
+      kind: "uiValues",
+      capturedUnixMilliseconds: sequence * 1000,
+      tick: 4574,
+      displayTick: 4574,
+      uiValues: [{ icon, label }],
+    })
+    // As recorded in a real match (Nov 2026).
+    const changes = normalizeTacticChanges([
+      at(1, "in-possession-directness-var-Shorter", "Mais curtos"),
+      at(2, "in-possession-directness-var-Shorter", "Centrais"),
+      at(3, "team-instructions-in-possession-progression-progress-through-left-flank", "Esquerdo"),
+      at(4, "team-instructions-in-possession-progression-passing-reception-var-standard", "Equilibrado"),
+    ])
+    const team = applyTacticChanges(defaultTacticProfile, changes).team
+    expect(team.passingDirectness).toBe("shorter")
+    expect(team.progressThrough).toBe("left")
+    expect(team.passReception).toBe("balanced")
+    expect(observedTeamInstructions(changes).map((item) => item.label)).toEqual(["Mais curtos", "Esquerdo", "Equilibrado"])
+  })
 })

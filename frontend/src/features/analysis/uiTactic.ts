@@ -168,7 +168,12 @@ function contradictsIcon(id: TeamInstructionId | undefined, icon: string, label:
   const byIcon = variant ? iconVariantOptions[id]?.[variant] : undefined
   const byText = profileOptionFor(id, label)
   // "Equilibrada" is not even an option of the line of engagement (Pressão alta / Bloco médio / Bloco baixo).
-  return byIcon != null && byText !== byIcon
+  if (byIcon != null && byText !== byIcon) return true
+  // Another tile's text (seen: the passing directness tile with "Centrais", a goalkeeper distribution option).
+  if (byText == null && !neutralLabels.has(label.toLocaleLowerCase("pt-PT"))) {
+    return teamInstructionDefinitions.some((other) => other.id !== id && other.options.some((option) => option.label === label))
+  }
+  return false
 }
 
 /** Last resort name for an icon-only value: its variant part ("much-higher" → "much higher"). */
