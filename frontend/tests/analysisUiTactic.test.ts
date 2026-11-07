@@ -263,6 +263,9 @@ describe("the supporting runs tile", () => {
     expect(profileOptionFor("underlap", "Direito")).toBe("right")
     expect(profileOptionFor("underlap", "Esquerdo")).toBe("left")
     expect(profileOptionFor("underlap", "Equilibrado")).toBe("none")
+    // Seen in a real match: "Zona de Pressão" options (Trap Inside / Trap Outside in the game's tables).
+    expect(profileOptionFor("pressingTrap", "Obrigar a jogar por dentro")).toBe("inside")
+    expect(profileOptionFor("pressingTrap", "Obrigar a jogar por fora")).toBe("outside")
   })
 })
 

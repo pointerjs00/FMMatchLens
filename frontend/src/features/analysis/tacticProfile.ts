@@ -102,7 +102,7 @@ export const teamInstructionDefinitions: InstructionDefinition[] = [
   { id: "lineOfEngagement", label: "Linha de Pressão", phase: "outOfPossession", defaultValue: "midBlock",
     options: [o("lowBlock", "Bloco baixo"), o("midBlock", "Bloco médio"), o("highPress", "Pressão alta")] },
   { id: "pressingTrap", label: "Zona de Pressão", phase: "outOfPossession", defaultValue: "balanced",
-    options: [o("inside", "Forçar para dentro"), o("balanced", "Equilibrado"), o("outside", "Forçar para fora")] },
+    options: [o("inside", "Obrigar a jogar por dentro"), o("balanced", "Equilibrado"), o("outside", "Obrigar a jogar por fora")] },
   { id: "shortGkDistribution", label: "Distribuição Curta do Guarda-redes", phase: "outOfPossession", defaultValue: "no",
     options: [o("no", "Não"), o("yes", "Sim")] },
   { id: "tackling", label: "Desarme", phase: "outOfPossession", defaultValue: "standard",
