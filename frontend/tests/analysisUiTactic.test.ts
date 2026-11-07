@@ -255,3 +255,13 @@ describe("the out-of-possession page of a player's panel", () => {
     expect(profile.players.DL).not.toContain("shootLess")
   })
 })
+
+describe("the supporting runs tile", () => {
+  it("is the underlap choice, with the game's texts", () => {
+    const tile = "team-instructions-in-possession-progression-supporting-runs-var-underlap-right"
+    expect(uiInstructionOf(tile)).toMatchObject({ scope: "team", profileId: "underlap", title: "Sobreposição interior" })
+    expect(profileOptionFor("underlap", "Direito")).toBe("right")
+    expect(profileOptionFor("underlap", "Esquerdo")).toBe("left")
+    expect(profileOptionFor("underlap", "Equilibrado")).toBe("none")
+  })
+})

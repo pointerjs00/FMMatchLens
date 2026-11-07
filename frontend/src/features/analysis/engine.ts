@@ -308,7 +308,9 @@ export function analyseMatch(
         ],
         actions: [
           `Abrir um nível: ${set("attackingWidth", team.attackingWidth === "muchNarrower" ? "narrower" : "balanced")}.`,
-          team.overlap === "both" ? "Já tens sobreposição dos dois lados; usa o lado com mais espaço." : `Pôr ${set("overlap", "both")} para arrastar os laterais adversários.`,
+          team.overlap === "both"
+            ? "Já tens sobreposição dos dois lados; usa o lado com mais espaço."
+            : `Pôr ${set("overlap", "both")} para arrastar os laterais adversários${team.underlap !== "none" ? ` (o jogo obriga a pôr ${set("underlap", "none")})` : ""}.`,
         ],
         priority: 65,
       })
@@ -956,7 +958,7 @@ const teamInstructionShortLabels: Record<TeamInstructionId, string> = {
   gkDistributionSpeed: "Velocidade de distribuição do GR",
   goalKicks: "Pontapés de baliza",
   overlap: "Sobreposição",
-  underlap: "Desdobramento por dentro",
+  underlap: "Sobreposição interior",
   passReception: "Receção do passe",
   passingDirectness: "Tipo de passe",
   patience: "Paciência",
