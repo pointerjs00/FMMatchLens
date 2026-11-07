@@ -9,12 +9,15 @@ import {
   type TacticProfile,
 } from "@/features/analysis/tacticProfile"
 import { teamPerformance, type TeamPerformance } from "@/features/analysis/playerImpact"
+import { duelBalance, duelSummary, fieldMatchups, type FieldMatchups } from "@/features/analysis/matchups"
 
 /**
  * What the opponent gives away: its players who are having a bad game, attribute match-ups our players
  * win, and team habits (block height, where it loses the ball) that call for a change in our tactic.
  *
- * Attributes are on the 1–20 scale the game shows. The opponent's right side faces our left side.
+ * Attributes are on the 1–20 scale the game shows. Who faces whom comes from where the players were on
+ * the pitch (matchups.ts); without position data it falls back to the slots (their right side faces our
+ * left side). The duel record in those zones confirms or contradicts what the attributes promise.
  */
 
 export type Exploit = {
@@ -28,6 +31,8 @@ export type Exploit = {
   weight: number
   ourPlayerIds: number[]
   theirPlayerIds: number[]
+  /** The duel record on the pitch contradicts the attribute advantage. */
+  contradicted?: boolean
 }
 
 export type OpponentReport = {
@@ -100,11 +105,19 @@ export function opponentReport(
   const minute = match.clock.minute
   // A deep block leaves no room behind (see opponentTendencies for the threshold).
   const lowBlock = minute >= 15 && opponentMetrics.defensiveActionHeight != null && opponentMetrics.defensiveActionHeight <= lowBlockHeight
+  const field = fieldMatchups(match, side)
+  const facingOf = (defender: MatchPlayer, zone: "left" | "right" | "centre") =>
+    field
+      ? field
+          .facing(defender.id)
+          .map((pair) => ours.find((player) => player.id === pair.attackerId))
+          .filter((player): player is MatchPlayer => player != null && (player.inPossession?.position ?? "") !== "GK")
+      : attackersFacing(zone, ours)
 
   for (const defender of theirs) {
     const zone = defenderZone(defender)
     if (!zone) continue
-    const facing = attackersFacing(zone, ours)
+    const facing = facingOf(defender, zone)
     const name = playerLabel(defender)
     const where = `${slotLabel(defender.outOfPossession?.position ?? defender.inPossession?.position)} (${zone === "centre" ? "ao centro" : `no teu corredor ${ourFlank[zone]}`})`
 
@@ -306,11 +319,118 @@ export function opponentReport(
     })
   }
 
+  if (field) {
+    annotateWithDuels(exploits, field, match, minute)
+    exploits.push(...duelExploits(field, match, side, profile, exploits, minute))
+  }
+
   return {
     performance,
     exploits: exploits.sort((x, y) => y.weight - x.weight),
     tendencies: opponentTendencies(match, profile, metrics, opponentMetrics),
   }
+}
+
+const nameOf = (match: MatchSnapshot, id: number) => {
+  const player = match.players.find((candidate) => candidate.id === id)
+  return player ? playerLabel(player) : "?"
+}
+
+/** After this many minutes and duels, the record is enough to confirm or contradict an attribute advantage. */
+const duelMinutes = 25
+const duelMinimum = 6
+
+/**
+ * Adds to each one-on-one exploit what happened on the pitch: how much of the time the two players
+ * shared the same zones and the duel record there. An advantage the record contradicts drops down.
+ */
+function annotateWithDuels(exploits: Exploit[], field: FieldMatchups, match: MatchSnapshot, minute: number) {
+  for (const exploit of exploits) {
+    if (exploit.ourPlayerIds.length !== 1 || exploit.theirPlayerIds.length !== 1) continue
+    const pair = field.pair(exploit.ourPlayerIds[0], exploit.theirPlayerIds[0])
+    if (!pair) continue
+    const attacker = nameOf(match, pair.attackerId)
+    const defender = nameOf(match, pair.defenderId)
+    exploit.evidence.push(`Em campo: ${attacker} e ${defender} partilham ${Math.round(pair.overlap * 100)}% das zonas quando tens a bola`)
+    const summary = duelSummary(pair.duels)
+    if (summary) exploit.evidence.push(`Duelos: ${summary}`)
+    const { wins, total } = duelBalance(pair.duels)
+    // His tackles count towards "enough data", not towards the ratio (they overlap with our balls lost).
+    if (minute < duelMinutes || total === 0 || total + pair.duels.defensive < duelMinimum) continue
+    if (wins / total < 0.3) {
+      exploit.tone = "info"
+      exploit.contradicted = true
+      exploit.title = `${exploit.title}, mas em campo não está a resultar`
+      exploit.weight -= 4
+    } else if (wins / total >= 0.6) {
+      exploit.title = `${exploit.title} e está a confirmar-se`
+      exploit.weight += 2
+    }
+  }
+}
+
+/** Duels clearly won or lost in a zone, whatever the attributes say. */
+function duelExploits(
+  field: FieldMatchups,
+  match: MatchSnapshot,
+  side: TeamSide,
+  profile: TacticProfile,
+  existing: Exploit[],
+  minute: number
+): Exploit[] {
+  if (minute < duelMinutes) return []
+  const out: Exploit[] = []
+  const covered = new Set(existing.flatMap((exploit) => exploit.ourPlayerIds.map((id) => `${id}:${exploit.theirPlayerIds[0]}`)))
+  for (const pair of field.pairs) {
+    if (covered.has(`${pair.attackerId}:${pair.defenderId}`)) continue
+    const attacker = match.players.find((player) => player.id === pair.attackerId && player.team === side && player.isOnPitch)
+    const defender = match.players.find((player) => player.id === pair.defenderId && player.isOnPitch)
+    if (!attacker || !defender) continue
+    const { wins, losses, total } = duelBalance(pair.duels)
+    const zone = defenderZone(defender)
+    const flank = zone && zone !== "centre" ? zone : undefined
+    const evidence = [
+      `Em campo: partilham ${Math.round(pair.overlap * 100)}% das zonas quando tens a bola`,
+      `Duelos: ${duelSummary(pair.duels)}`,
+    ]
+    const attackerName = playerLabel(attacker)
+    const defenderName = playerLabel(defender)
+    const where = slotLabel(defender.outOfPossession?.position ?? defender.inPossession?.position)
+    if (wins >= 4 && wins >= 2 * losses) {
+      out.push({
+        id: `duel-won.${attacker.id}.${defender.id}`,
+        tone: "good",
+        title: `${attackerName} está a ganhar os duelos a ${defenderName}`,
+        detail: `Nas zonas onde ${defenderName} (${where}) defende, ${attackerName} tem ${wins} duelo(s) ganho(s) e ${losses} perdido(s). Vale a pena dar-lhe mais bola.`,
+        evidence,
+        actions: [
+          flank ? teamAction(profile, "progressThrough", progressValue[flank]) : "",
+          pair.duels.dribbles >= 3 ? tagAction(profile, attacker, "dribbleMore") : "",
+        ].filter(Boolean),
+        weight: 4 + wins - losses / 2,
+        ourPlayerIds: [attacker.id],
+        theirPlayerIds: [defender.id],
+      })
+    } else if (total >= duelMinimum && pair.duels.lost >= 5 && pair.duels.defensive >= 3 && wins * 3 <= pair.duels.lost) {
+      const dribbles = instructionsForSlot(profile, attacker.inPossession?.position).includes("dribbleMore")
+      const other = flank === "left" ? "right" : flank === "right" ? "left" : undefined
+      out.push({
+        id: `duel-lost.${attacker.id}.${defender.id}`,
+        tone: "warning",
+        title: `${defenderName} está a anular ${attackerName}`,
+        detail: `Nas zonas de ${defenderName} (${where}), ${attackerName} perdeu ${pair.duels.lost} bolas e só ganhou ${wins} duelo(s); ${defenderName} fez ${pair.duels.defensive} desarme(s)/interceção(ões).`,
+        evidence,
+        actions: [
+          dribbles ? `Tirar "${playerInstructionLabels.dribbleMore}" a ${attackerName}: está a perder os 1x1.` : "",
+          other ? `Procurar o outro corredor: ${instructionSetting("progressThrough", progressValue[other])}.` : "",
+        ].filter(Boolean),
+        weight: 3 + pair.duels.lost / 2,
+        ourPlayerIds: [attacker.id],
+        theirPlayerIds: [defender.id],
+      })
+    }
+  }
+  return out
 }
 
 /**

@@ -184,6 +184,10 @@ export type TacticMoment = {
   comparison?: TacticComparison
   /** Minutes played since it was applied, when still too few to compare. */
   tooShortMinutes?: number
+  /** The changes of this moment and the tactic just before and after them (to tell what was changed). */
+  changes?: TacticChange[]
+  profileBefore?: TacticProfile
+  profileAfter?: TacticProfile
 }
 
 export type ComparisonRow = {
@@ -259,20 +263,22 @@ export function tacticChangesReport(
       (change) => change.initial || (change.appliedTick != null && change.sequence < first.sequence)
     )
     let running = applyTacticChanges(profile, appliedBefore, true)
+    const profileBefore = running
     const lines: string[] = []
     for (const change of group) {
       lines.push(describeTacticChange(change, running))
       running = applyTacticChanges(running, [change])
     }
-    if (pending) return { minute, madeMinute, pending, lines }
+    const detail = { changes: group, profileBefore, profileAfter: running }
+    if (pending) return { minute, madeMinute, pending, lines, ...detail }
 
     const previous = appliedMinutes.filter((value) => value < minute).at(-1) ?? 0
     const next = appliedMinutes.find((value) => value > minute) ?? now + 1
     const after = minuteWindow(minute, Math.min(now, next - 1))
     const comparison = compareWindows(match, side, minuteWindow(previous, minute - 1), after)
     return comparison
-      ? { minute, madeMinute, pending, lines, comparison }
-      : { minute, madeMinute, pending, lines, tooShortMinutes: windowMinutes(after) }
+      ? { minute, madeMinute, pending, lines, comparison, ...detail }
+      : { minute, madeMinute, pending, lines, tooShortMinutes: windowMinutes(after), ...detail }
   })
 
   let overall: TacticChangesReport["overall"]

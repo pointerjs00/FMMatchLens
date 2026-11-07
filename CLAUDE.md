@@ -21,6 +21,13 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
     posição (quartis por 90' de 281 atuações dos jogos de `samples/`) e com a quota nos totais da equipa.
   - `opponent.ts` — adversário: confrontos de atributos (velocidade, 1x1, jogo aéreo, concentração; o lado direito deles
     defende o nosso corredor esquerdo), amarelados/cansados, saída de bola frágil, hábitos (altura do bloco, perdas atrás).
+  - `matchups.ts` — quem enfrenta quem em campo: sobreposição dos mapas de calor por jogador (nosso com bola × deles sem
+    bola, zonas 8×12) e duelos por zona (dribles/perdas/aéreos nossos, desarmes/interceções deles, atribuídos ao
+    adversário frente a frente mais presente na zona do evento). Usado por `opponent.ts` (confirma ou contraria vantagens
+    de atributos).
+  - `suggestions.ts` — lê de volta as sugestões do painel como alterações concretas, compara-as com as alterações gravadas
+    (seguida / iniciativa tua), regista ao vivo o que o painel mostrou (`localStorage`) e, em "Vários jogos", reconstrói as
+    sugestões no minuto de cada alteração e agrega o efeito por regra.
   - `gamePlan.ts` — "plano para dar a volta" sempre que a equipa está a perder (leitura xG, risco por minuto, onde o ataque
     encrava, pontos fracos do adversário, substituições pelo encaixe no papel, o que não mexer).
   - `AnalysisDrawer.tsx` — painel lateral (botão "Análise" no cabeçalho).
@@ -52,6 +59,9 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
   um texto PT. Só acrescentar a `gameOptionLabels`/`playerInstructionTags` (uiTactic.ts) textos vistos no jogo ou cujas
   traduções inglesas apontem todas para a mesma opção. As táticas exportadas (`Documents/.../tactics/*.fmf`, magia
   `afe.`) estão cifradas — não ler.
+- **Mapas de calor vs eventos**: os mapas de calor (`snapshot.heatmaps`, 40×60, lateral × longitudinal) não têm a
+  orientação dos eventos; depende do lado em que a equipa da casa começou. GR da casa com y médio > 50 no mapa ⇒
+  (hx, hy) = (y, 100 − x); senão (100 − y, x). Verificado nos 9 jogos, nas duas partes (`matchups.ts`).
 - **Calibração**: os limiares das regras foram recalibrados com 9 jogos (18 atuações, `samples/`, nov.–dez. 2026). Medianas de referência:
   xG/remate 0,10 · cruzamentos certos 14% · ações ofensivas pelo centro 26% · altura média das ações defensivas 31%
   (a nossa pressão alta: 33–39%; nunca chega a 40%) · perdas no próprio terço ~8 por jogo com saída curta.

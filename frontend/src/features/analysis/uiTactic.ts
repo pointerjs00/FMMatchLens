@@ -227,6 +227,7 @@ export function normalizeTacticChanges(all: readonly TacticChange[]): TacticChan
             ...change,
             kind: "playerInstruction",
             source: "ui",
+            uiKey: instruction.key,
             uiTitle: instruction.title,
             fromLabel: previous ?? null,
             toLabel: pair.label,
@@ -350,6 +351,12 @@ const playerInstructionTags: Array<[iconPrefix: string, label: string, tag: Play
   ["pi_in_possession-passing-strategy", "mais curtos", "shorterPasses"],
   ["in-possession-final-third-cross-strat", "avançado alvo", "crossToTargetForward"],
 ]
+
+/** The analysis tag of a player's instruction option (`uiKey` of a normalized change and the option text). */
+export function playerInstructionTagFor(uiKey: string | undefined, label: string | null | undefined) {
+  if (!uiKey || !label) return undefined
+  return playerInstructionTags.find(([prefix, text]) => uiKey.startsWith(prefix) && fold(label) === text)?.[2]
+}
 
 /** Tags the in-possession panel decides (out-of-possession ones stay as in the "Tática" tab). */
 const inPossessionTags = new Set<PlayerInstructionTag>([

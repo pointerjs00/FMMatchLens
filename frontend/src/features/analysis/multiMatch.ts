@@ -11,12 +11,18 @@ import {
   type MatchAnalysis,
 } from "@/features/analysis/engine"
 import type { TacticProfile } from "@/features/analysis/tacticProfile"
+import type { TacticChange } from "@/features/analysis/tacticChangeRecords"
+import { archiveSuggestionOutcomes, ruleEffects, type RuleEffect, type SuggestionOutcome } from "@/features/analysis/suggestions"
 
 export type AnalysedMatch = {
   key: string
   fileName: string
   date?: string
   analysis: MatchAnalysis
+  /** Recorded tactic changes that followed a suggestion of the panel, with their before/after. */
+  suggestionOutcomes?: SuggestionOutcome[]
+  /** The archive has tactic changes recorded by the plugin. */
+  hasTacticChanges?: boolean
 }
 
 /** Plays an archive to its last frame and analyses the final state. */
@@ -34,7 +40,8 @@ export async function analyseArchiveFile(
       ratingConfiguration: parsed.ratingConfiguration,
     },
     file.name,
-    profile
+    profile,
+    parsed.tacticChanges
   )
 }
 
@@ -43,19 +50,38 @@ type ArchiveInput = Parameters<typeof preprocessReplayArchive>[0]
 async function analysePreparedArchive(
   input: ArchiveInput,
   fileName: string,
-  profile: TacticProfile
+  profile: TacticProfile,
+  tacticChanges?: readonly TacticChange[]
 ): Promise<AnalysedMatch> {
   const archive = await preprocessReplayArchive(input)
   if (archive.frameCount === 0) throw new Error("Arquivo sem frames")
   const session = new ReplaySession(archive, { allowLocalAssets: false })
   try {
-    const snapshot = session.advanceTo(archive.frameCount - 1)
+    let index = 0
+    // First frame at or after a tick (the replay only moves forward).
+    const frameAt = (tick: number) => {
+      while (index < archive.frameCount - 1 && archive.ticks[index] < tick) index += 1
+      return index
+    }
+    let suggestionOutcomes: SuggestionOutcome[] | undefined
+    let snapshot: ReturnType<ReplaySession["advanceTo"]> | undefined
+    if (tacticChanges?.length) {
+      suggestionOutcomes = archiveSuggestionOutcomes(
+        tacticChanges,
+        profile,
+        (tick) => session.advanceTo(frameAt(tick)),
+        () => (snapshot = session.advanceTo(archive.frameCount - 1))
+      )
+    }
+    snapshot ??= session.advanceTo(archive.frameCount - 1)
     return {
       // Same key as a dropped file of the same match, so both sources de-duplicate.
       key: input.summary.matchId || fileName,
       fileName,
       date: input.summary.matchDate,
       analysis: analyseMatch(snapshot, profile),
+      suggestionOutcomes,
+      hasTacticChanges: (tacticChanges?.length ?? 0) > 0,
     }
   } finally {
     session.dispose()
@@ -77,6 +103,7 @@ type ArchiveSlice = {
   metadata?: RealtimeMatchMetadata
   metadataTimeline?: RealtimeMatchMetadata[]
   frames: readonly RealtimeFrame[]
+  tacticChanges?: TacticChange[]
 }
 
 /** Every finished archive the plugin has saved; the match still being recorded is skipped. */
@@ -106,6 +133,7 @@ export async function analyseServerArchive(
   let metadata: RealtimeMatchMetadata | undefined
   let metadataTimeline: RealtimeMatchMetadata[] = []
   let latest: ArchiveSummary | undefined
+  let tacticChanges: TacticChange[] | undefined
   let fromTick = 0
   for (;;) {
     const response = await fetch(
@@ -117,6 +145,7 @@ export async function analyseServerArchive(
     latest = page.archive
     metadata ??= page.metadata
     if (!metadataTimeline.length && page.metadataTimeline?.length) metadataTimeline = page.metadataTimeline
+    if (!tacticChanges?.length && page.tacticChanges?.length) tacticChanges = page.tacticChanges
     if (page.frames.length === 0) break
     frames.push(...page.frames)
     const lastTick = page.frames.at(-1)?.tick ?? fromTick
@@ -134,7 +163,8 @@ export async function analyseServerArchive(
       ratingConfiguration: observedRatingWeightConfiguration,
     },
     fileName,
-    profile
+    profile,
+    tacticChanges
   )
 }
 
@@ -184,6 +214,10 @@ export type SeasonAggregate = {
   scores: { attack: number; defence: number; pressing: number; transition: number }
   recurring: RecurringInsight[]
   players: PlayerAggregate[]
+  /** Matches with tactic changes recorded by the plugin. */
+  matchesWithChanges: number
+  /** Suggestions of the panel that were followed, by rule, with the average effect. */
+  suggestionEffects: RuleEffect[]
 }
 
 const mean = (values: number[]) =>
@@ -311,6 +345,8 @@ export function aggregateMatches(matches: AnalysedMatch[]): SeasonAggregate | un
     },
     recurring,
     players,
+    matchesWithChanges: matches.filter((match) => match.hasTacticChanges).length,
+    suggestionEffects: ruleEffects(matches.flatMap((match) => match.suggestionOutcomes ?? [])),
   }
 }
 

@@ -173,7 +173,7 @@ export function comebackPlan(
   // ── Opponent: what it gives away ───────────────────────────────────────
   // The strongest player match-ups plus the main team habit that asks for a change.
   const tendency = opponent.tendencies.find((item) => item.actions.some((action) => !action.endsWith("mantém.")))
-  const exploits = [...opponent.exploits.slice(0, 3), ...(tendency ? [tendency] : [])]
+  const exploits = [...opponent.exploits.filter((exploit) => !exploit.contradicted).slice(0, 3), ...(tendency ? [tendency] : [])]
   if (exploits.length) {
     steps.push({
       id: "opponent",

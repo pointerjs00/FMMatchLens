@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Drawer,
@@ -67,6 +67,18 @@ import {
 import { comebackPlan, type GamePlan } from "@/features/analysis/gamePlan"
 import { opponentReport, type Exploit, type OpponentReport } from "@/features/analysis/opponent"
 import { teamPerformance, type PlayerImpact, type TeamPerformance } from "@/features/analysis/playerImpact"
+import {
+  changesMade,
+  collectSuggestions,
+  followedSuggestions,
+  loggedSuggestions,
+  recordSuggestions,
+  subscribeSuggestionLog,
+  suggestionsAt,
+  watchedAt,
+  type FollowedSuggestion,
+  type RuleEffect,
+} from "@/features/analysis/suggestions"
 
 type TabId = "match" | "players" | "opponent" | "changes" | "tactic" | "season"
 type WindowMode = "full" | "recent"
@@ -236,6 +248,30 @@ export function AnalysisDrawer({
         : undefined,
     [open, analysis, sampled, profile, tacticChanges]
   )
+  // While a live match is on screen, remember what the panel suggested and when, to tell later whether a
+  // change followed a suggestion. Replays of archives are not logged (scrubbing would rewrite history).
+  const live = archivedTacticChanges(sampled.matchId) == null
+  const suggestionLog = useSyncExternalStore(subscribeSuggestionLog, () => loggedSuggestions(sampled.matchId))
+  useEffect(() => {
+    if (!open || !live || !fullAnalysis) return
+    recordSuggestions(sampled.matchId, sampled.clock.minute, collectSuggestions(sampled, fullAnalysis, scouting, plan))
+    // Logged once per game minute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, live, sampled.matchId, sampled.clock.minute])
+  const followedByMoment = useMemo(
+    () =>
+      changesReport && analysis
+        ? changesReport.moments.map((moment) => ({
+            watched: watchedAt(suggestionLog, moment.madeMinute),
+            followed: followedSuggestions(
+              moment,
+              changesMade(moment, sampled, analysis.side),
+              suggestionsAt(suggestionLog, moment.madeMinute)
+            ),
+          }))
+        : undefined,
+    [changesReport, analysis, sampled, suggestionLog]
+  )
   const updateProfile = (next: TacticProfile) => {
     setProfile(next)
     saveTacticProfile(next)
@@ -315,7 +351,9 @@ export function AnalysisDrawer({
             {tab === "opponent" && scouting && fullAnalysis && (
               <OpponentTab report={scouting} opponentName={fullAnalysis.opponentName} />
             )}
-            {tab === "changes" && <ChangesTab report={changesReport} recorded={tacticChanges != null} />}
+            {tab === "changes" && (
+              <ChangesTab report={changesReport} recorded={tacticChanges != null} followed={followedByMoment} />
+            )}
             {tab === "tactic" && <TacticTab profile={profile} onChange={updateProfile} observed={observedInstructions} />}
             {tab === "season" && (
               <SeasonTab profile={profile} apiBase={apiBase} connectionEnabled={connectionEnabled} />
@@ -514,7 +552,18 @@ function InsightCard({ insight }: { insight: Insight }) {
 
 // ── Changes tab ──────────────────────────────────────────────────────────
 
-export function ChangesTab({ report, recorded }: { report?: TacticChangesReport; recorded: boolean }) {
+/** Per moment of the report (same order): whether the panel was open then and the suggestions it followed. */
+type MomentSuggestions = { watched: boolean; followed: FollowedSuggestion[] }
+
+export function ChangesTab({
+  report,
+  recorded,
+  followed,
+}: {
+  report?: TacticChangesReport
+  recorded: boolean
+  followed?: MomentSuggestions[]
+}) {
   if (!recorded) {
     return (
       <p className="m-4 rounded-md bg-muted px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -562,7 +611,11 @@ export function ChangesTab({ report, recorded }: { report?: TacticChangesReport;
                 )}
                 aria-hidden
               />
-              <MomentCard moment={moment} defaultOpen={index === 0} />
+              <MomentCard
+                moment={moment}
+                defaultOpen={index === 0}
+                suggestions={followed?.[moments.length - 1 - index]}
+              />
             </li>
           ))}
         </ol>
@@ -571,21 +624,32 @@ export function ChangesTab({ report, recorded }: { report?: TacticChangesReport;
   )
 }
 
-function MomentCard({ moment, defaultOpen }: { moment: TacticMoment; defaultOpen: boolean }) {
+function MomentCard({
+  moment,
+  defaultOpen,
+  suggestions,
+}: {
+  moment: TacticMoment
+  defaultOpen: boolean
+  suggestions?: MomentSuggestions
+}) {
   const when = moment.pending
     ? "aplica-se na próxima paragem"
     : moment.madeMinute !== moment.minute
       ? `feita aos ${moment.madeMinute}', aplicada aos ${moment.minute}'`
       : `feita e aplicada aos ${moment.minute}'`
   const body = (
-    <ul className="mt-1 space-y-0.5 text-xs">
-      {moment.lines.map((line, index) => (
-        <li key={index} className="flex gap-1.5">
-          <span className="text-primary">→</span>
-          <span>{line}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="mt-1 space-y-0.5 text-xs">
+        {moment.lines.map((line, index) => (
+          <li key={index} className="flex gap-1.5">
+            <span className="text-primary">→</span>
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
+      {suggestions && <SuggestionOrigin suggestions={suggestions} />}
+    </>
   )
   return (
     <CollapsibleCard
@@ -604,6 +668,29 @@ function MomentCard({ moment, defaultOpen }: { moment: TacticMoment; defaultOpen
         </p>
       )}
     </CollapsibleCard>
+  )
+}
+
+/** Whether a change followed something the panel was suggesting at the time. */
+function SuggestionOrigin({ suggestions }: { suggestions: MomentSuggestions }) {
+  if (suggestions.followed.length) {
+    return (
+      <ul className="mt-1.5 space-y-0.5 text-[11px] text-status-positive">
+        {suggestions.followed.map((item) => (
+          <li key={item.ruleId}>
+            ✓ Sugerido pelo painel: {item.ruleTitle}
+            {item.firstMinute != null ? ` (visível desde os ${item.firstMinute}')` : ""}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+  return (
+    <p className="mt-1.5 text-[11px] text-muted-foreground">
+      {suggestions.watched
+        ? "Iniciativa tua: o painel não sugeria esta alteração."
+        : "Sem registo das sugestões neste minuto (o painel estava fechado)."}
+    </p>
   )
 }
 
@@ -1032,6 +1119,63 @@ export function OpponentTab({ report, opponentName }: { report: OpponentReport; 
   )
 }
 
+/** Which suggestions were followed in the recorded matches, and the average change afterwards. */
+export function SuggestionEffectsSection({
+  effects,
+  matchesWithChanges,
+}: {
+  effects: RuleEffect[]
+  matchesWithChanges: number
+}) {
+  const signed = (value: number) => `${value > 0 ? "+" : ""}${dec(value)}`
+  return (
+    <section className="space-y-2">
+      <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Sugestões seguidas</h3>
+      {effects.length === 0 ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {matchesWithChanges === 0
+            ? "Nenhum destes jogos tem alterações táticas gravadas (o plugin grava-as desde a versão com o separador \"Alterações\")."
+            : `Em ${matchesWithChanges} jogo(s) com alterações gravadas, nenhuma coincidiu com uma sugestão do painel.`}
+        </p>
+      ) : (
+        effects.map((effect) => (
+          <details key={effect.ruleId} className="rounded-lg border px-3 py-2">
+            <summary className="flex cursor-pointer list-none items-baseline gap-2">
+              <span className="min-w-0 flex-1 text-[13px] font-semibold">{effect.ruleTitle}</span>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {effect.followed}× seguida{effect.measured ? ` · ${effect.measured} medida(s)` : ""}
+              </span>
+            </summary>
+            <div className="mt-2 space-y-1 text-xs">
+              {effect.measured > 0 ? (
+                <p className="tabular-nums">
+                  Depois de a seguir, por 90 minutos: xG {effect.xgFor != null ? signed(effect.xgFor) : "—"} · xG sofrido{" "}
+                  {effect.xgAgainst != null ? signed(effect.xgAgainst) : "—"}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Ainda sem medição: é preciso jogar pelo menos {reliableComparisonMinutes} minutos antes e depois.
+                </p>
+              )}
+              <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                {effect.examples.map((example, index) => (
+                  <li key={index}>
+                    {example.minute}': {example.action}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </details>
+        ))
+      )}
+      <p className="text-[10px] leading-relaxed text-muted-foreground">
+        Uma alteração conta como seguida quando coincide com uma sugestão que o painel mostrava nesse minuto
+        (reconstruída a partir da gravação). Com poucos jogos, as médias são só uma indicação.
+      </p>
+    </section>
+  )
+}
+
 // ── Tactic tab ───────────────────────────────────────────────────────────
 
 const slotOptions = ["GK", "DL", "DCL", "DCR", "DC", "DR", "WBL", "WBR", "DM", "DMC", "ML", "MR", "MC", "MCL", "MCR", "AML", "AMR", "AMC", "ST"]
@@ -1437,6 +1581,11 @@ function SeasonTab({
               </details>
             ))}
           </section>
+
+          <SuggestionEffectsSection
+            effects={aggregate.suggestionEffects}
+            matchesWithChanges={aggregate.matchesWithChanges}
+          />
 
           <section className="space-y-2">
             <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Jogadores</h3>
