@@ -95,6 +95,7 @@ describe("opponent tab", () => {
             },
           ],
           tendencies: [],
+          changes: [{ minute: 37, kind: "role", title: "Matheus Dias mudou de papel com bola", detail: "Médio defensivo → Médio box-to-box." }],
         }}
       />
     )
@@ -102,5 +103,7 @@ describe("opponent tab", () => {
     expect(html).toContain("Durán é bem mais rápido do que Zé Vitor")
     expect(html).toContain("Como o Nacional está a jogar")
     expect(html).toContain("aparece a partir dos 15 minutos")
+    expect(html).toContain("O que o Nacional mudou")
+    expect(html).toContain("Matheus Dias mudou de papel com bola")
   })
 })

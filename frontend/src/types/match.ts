@@ -180,6 +180,9 @@ export type TacticalEventPoint = {
   sequenceIndex?: number
   completionTick?: number
   annotations?: TacticalEventAnnotation[]
+  /** Fork: closest opponent of the player at the event's tick, and the distance in metres (analysis/proximity.ts). */
+  nearestOpponentId?: number
+  nearestOpponentDistance?: number
 }
 
 export type PlayerStats = {

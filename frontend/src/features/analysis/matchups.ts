@@ -8,9 +8,12 @@ import { opposite } from "@/features/analysis/metrics"
  *
  * - Overlap: our player's positions while we have the ball against the opponent's positions in the same
  *   phase (they are defending), on 8×12 zones of the pitch (≈ 8,5 m × 8,8 m). Share of time in common, 0–1.
- * - Duels: each of our dribbles, ball losses and aerial duels is credited to the facing opponent who spends
- *   most time in the zone where it happened; their tackles and interceptions are credited the same way to
- *   the facing player of ours. The game does not name the opponent in a duel, so this is "in his zone".
+ * - Duels: the game does not name the opponent in a duel, so each event carries the opponent who was
+ *   closest to the player at its tick (analysis/proximity.ts, from the frames). It counts as a duel with him
+ *   only when he was close enough for that kind of action (limits below, from the distances measured on
+ *   the calibration matches). A ball lost with nobody near is a misplaced pass, not a duel lost.
+ *   Events without that information (older data) fall back to the facing opponent most present in the
+ *   zone where they happened.
  *
  * Event coordinates (home attacks x = 100, home left at y low) and heatmap coordinates (raw pitch,
  * second half flipped, lateral then longitudinal) do not share an orientation: it depends on the end the
@@ -21,11 +24,11 @@ import { opposite } from "@/features/analysis/metrics"
  */
 
 export type PairDuels = {
-  /** Our dribbles completed in his zone. */
+  /** Our dribbles completed with him the closest opponent. */
   dribbles: number
-  /** Balls our player lost in his zone. */
+  /** Balls our player lost with him close. */
   lost: number
-  /** His tackles won and interceptions in our player's zone. */
+  /** His tackles won and interceptions against our player. */
   defensive: number
   aerialsWon: number
   aerialsLost: number
@@ -40,7 +43,10 @@ export type FacingPair = {
 }
 
 export type FieldMatchups = {
+  /** Players who face each other (zone overlap). */
   pairs: FacingPair[]
+  /** Every pair with at least one duel, facing or not. */
+  duelPairs: FacingPair[]
   /** Our players facing a given opponent (strongest overlap first). */
   facing(defenderId: number): FacingPair[]
   pair(attackerId: number, defenderId: number): FacingPair | undefined
@@ -57,6 +63,13 @@ const minOverlap = 0.45
 const closeToBest = 0.85
 
 type Zones = { time: Float64Array; share: Float64Array; samples: number }
+
+/**
+ * Distance (m) to the closest opponent under which an event is a duel with him. Measured on the calibration
+ * matches: aerial duels median 0,4 m (p90 1,4), tackles won 1,0 (p90 1,7), dribbles 2,5–3,1 (p90 ≈ 5),
+ * interceptions 2,8 (p75 4,8), balls lost 3,5 (p75 7: many are passes with nobody near).
+ */
+const duelDistance = { dribbles: 5, lost: 3, aerialsWon: 2, aerialsLost: 2, defensive: 3 } as const
 
 function zonesOf(match: MatchSnapshot, playerId: number, phase: "inPossession" | "outOfPossession"): Zones {
   const grid = getHeatmap(match.heatmaps, { scope: { type: "player", playerId }, phase, range: "full" })
@@ -146,13 +159,30 @@ export function fieldMatchups(match: MatchSnapshot, side: TeamSide): FieldMatchu
     }
   }
 
-  // Each duel goes to the pair it most likely involved: the facing opponent most present in that zone.
-  const duelsOf = (attackerId: number, defenderId: number) =>
-    pairs.find((pair) => pair.attackerId === attackerId && pair.defenderId === defenderId)!.duels
+  const overlapOf = (attackerId: number, defenderId: number) => {
+    const attacker = ours.get(attackerId)
+    const defender = theirs.get(defenderId)
+    if (!attacker || !defender) return 0
+    let overlap = 0
+    for (let zone = 0; zone < attacker.share.length; zone += 1) overlap += Math.min(attacker.share[zone], defender.share[zone])
+    return overlap
+  }
+  const records = new Map<string, FacingPair>(pairs.map((pair) => [`${pair.attackerId}:${pair.defenderId}`, pair]))
+  const duelsOf = (attackerId: number, defenderId: number) => {
+    const key = `${attackerId}:${defenderId}`
+    let record = records.get(key)
+    if (!record) {
+      record = { attackerId, defenderId, overlap: overlapOf(attackerId, defenderId), duels: emptyDuels() }
+      records.set(key, record)
+    }
+    return record.duels
+  }
   const facingAttacker = (attackerId: number) => pairs.filter((pair) => pair.attackerId === attackerId).map((pair) => pair.defenderId)
   const facingDefender = (defenderId: number) => pairs.filter((pair) => pair.defenderId === defenderId).map((pair) => pair.attackerId)
+  const theirIds = new Set(match.players.filter((player) => player.team !== side).map((player) => player.id))
+  const ourIds = new Set(match.players.filter((player) => player.team === side).map((player) => player.id))
   for (const event of match.tacticalEvents) {
-    if (event.team === side && ours.has(event.playerId)) {
+    if (event.team === side && ourIds.has(event.playerId)) {
       const kind = is(event, "dribblesCompleted")
         ? "dribbles"
         : is(event, "possessionLost")
@@ -163,27 +193,41 @@ export function fieldMatchups(match: MatchSnapshot, side: TeamSide): FieldMatchu
               ? "aerialsLost"
               : undefined
       if (!kind) continue
+      if (event.nearestOpponentId != null && event.nearestOpponentDistance != null) {
+        if (theirIds.has(event.nearestOpponentId) && event.nearestOpponentDistance <= duelDistance[kind])
+          duelsOf(event.playerId, event.nearestOpponentId)[kind] += 1
+        continue
+      }
+      if (!ours.has(event.playerId)) continue
       const defender = presentIn(zoneIndex(orient, event), facingAttacker(event.playerId), theirs)
       if (defender != null) duelsOf(event.playerId, defender)[kind] += 1
-    } else if (event.team !== side && theirs.has(event.playerId) && (is(event, "tacklesWon") || is(event, "interceptions"))) {
+    } else if (event.team !== side && theirIds.has(event.playerId) && (is(event, "tacklesWon") || is(event, "interceptions"))) {
+      if (event.nearestOpponentId != null && event.nearestOpponentDistance != null) {
+        if (ourIds.has(event.nearestOpponentId) && event.nearestOpponentDistance <= duelDistance.defensive)
+          duelsOf(event.nearestOpponentId, event.playerId).defensive += 1
+        continue
+      }
+      if (!theirs.has(event.playerId)) continue
       const attacker = presentIn(zoneIndex(orient, event), facingDefender(event.playerId), ours)
       if (attacker != null) duelsOf(attacker, event.playerId).defensive += 1
     }
   }
+  const all = [...records.values()]
   return {
     pairs,
+    duelPairs: all.filter((record) => Object.values(record.duels).some((value) => value > 0)),
     facing: (defenderId) => pairs.filter((pair) => pair.defenderId === defenderId).sort((a, b) => b.overlap - a.overlap),
-    pair: (attackerId, defenderId) => pairs.find((item) => item.attackerId === attackerId && item.defenderId === defenderId),
+    pair: (attackerId, defenderId) => records.get(`${attackerId}:${defenderId}`),
   }
 }
 
-/** "4 dribles certos e 6 bolas perdidas na zona dele; 3 desarmes/interceções dele" — empty when nothing happened. */
+/** "4 dribles certos e 6 bolas perdidas frente a ele; 3 desarmes/interceções dele" — empty when nothing happened. */
 export function duelSummary(duels: PairDuels) {
   const parts: string[] = []
   if (duels.dribbles) parts.push(`${duels.dribbles} drible(s) certo(s)`)
   if (duels.lost) parts.push(`${duels.lost} bola(s) perdida(s)`)
   if (duels.aerialsWon + duels.aerialsLost) parts.push(`${duels.aerialsWon} de ${duels.aerialsWon + duels.aerialsLost} duelos aéreos ganhos`)
-  const ours = parts.length ? `${parts.join(", ")} na zona dele` : ""
+  const ours = parts.length ? `${parts.join(", ")} frente a ele` : ""
   const theirs = duels.defensive ? `${duels.defensive} desarme(s)/interceção(ões) dele` : ""
   return [ours, theirs].filter(Boolean).join("; ")
 }

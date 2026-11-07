@@ -1105,6 +1105,29 @@ export function OpponentTab({ report, opponentName }: { report: OpponentReport; 
         empty="Sem diferenças claras de atributos entre os teus atacantes e os defesas adversários."
       />
       {warnings.length > 0 && <InsightSection title="Cuidado com" insights={warnings.map(exploitInsight)} />}
+      <section className="space-y-2">
+        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+          O que o {opponentName} mudou
+        </h3>
+        {report.changes.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Sem mudanças detetadas. As mudanças de formação e de papéis só chegam em jogos ao vivo; substituições e
+            altura do bloco também em repetições.
+          </p>
+        ) : (
+          <ol className="relative space-y-2 border-l border-border pl-4">
+            {[...report.changes].reverse().map((change, index) => (
+              <li key={`${change.minute}-${index}`} className="relative">
+                <span className="absolute top-1.5 -left-[21px] size-2.5 rounded-full bg-status-warning ring-2 ring-card" aria-hidden />
+                <p className="text-xs">
+                  <span className="font-semibold tabular-nums">{change.minute}'</span> · {change.title}
+                </p>
+                <p className="text-[11px] text-muted-foreground">{change.detail}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
       <InsightSection
         title={`Como o ${opponentName} está a jogar`}
         insights={report.tendencies.map(exploitInsight)}

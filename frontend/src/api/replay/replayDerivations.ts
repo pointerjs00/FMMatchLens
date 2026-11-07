@@ -1,3 +1,4 @@
+import { ProximityTracker, type ProximityState } from "@/features/analysis/proximity"
 import { HeatmapDerivations, type HeatmapDerivationsState } from "@/api/heatmap"
 import {
   attachAuxiliaryEventAnnotations,
@@ -71,6 +72,8 @@ export type HistoricalDerivationsState = {
   momentumStream: RealtimeMomentumPoint[]
   rollingStream: RealtimeMomentumPoint[]
   heatmaps: HeatmapDerivationsState
+  /** Fork (analysis/proximity.ts); absent in states exported before it existed. */
+  proximity?: ProximityState
 }
 
 /** Shared incremental history engine used by both live capture and replay. */
@@ -92,6 +95,7 @@ export class HistoricalDerivations {
   private momentumStream: RealtimeMomentumPoint[] = []
   private rollingStream: RealtimeMomentumPoint[] = []
   private heatmaps = new HeatmapDerivations()
+  private proximity = new ProximityTracker()
   private tacticalOutput: TacticalEventPoint[] = []
   private xgShotOutput: XgShotPoint[] = []
   private momentumOutput: MatchMomentumPoint[] = []
@@ -121,6 +125,7 @@ export class HistoricalDerivations {
     this.momentumStream = []
     this.rollingStream = []
     this.heatmaps.reset()
+    this.proximity.reset()
     this.markAllDirty()
   }
 
@@ -161,6 +166,7 @@ export class HistoricalDerivations {
     }
 
     this.appendXg(frame)
+    this.proximity.appendFrame(frame)
     this.applyMomentumRevision(streams.momentum, false)
     this.applyMomentumRevision(streams.rollingMomentum, true)
     this.applyNativeRevision(frame, streams.momentumEvents)
@@ -251,6 +257,7 @@ export class HistoricalDerivations {
       momentumStream: this.momentumStream.slice(),
       rollingStream: this.rollingStream.slice(),
       heatmaps: this.heatmaps.exportState(),
+      proximity: this.proximity.exportState(),
     }
   }
 
@@ -273,6 +280,7 @@ export class HistoricalDerivations {
     this.momentumStream = state.momentumStream.slice()
     this.rollingStream = state.rollingStream.slice()
     this.heatmaps.restoreState(state.heatmaps)
+    this.proximity.restoreState(state.proximity)
     this.markAllDirty()
   }
 
@@ -339,7 +347,11 @@ export class HistoricalDerivations {
         event,
         revision: update.revision,
       })
-      const point = nativeMomentumEventToTacticalPoint(frame, event)
+      const point = this.proximity.annotate(
+        nativeMomentumEventToTacticalPoint(frame, event),
+        event,
+        this.tactical.get(event.sequenceIndex)
+      )
       if (point) {
         const previousPoint = this.tactical.get(event.sequenceIndex)
         this.tactical.set(

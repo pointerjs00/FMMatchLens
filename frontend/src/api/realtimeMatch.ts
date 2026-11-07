@@ -1,3 +1,4 @@
+import { ProximityTracker } from "@/features/analysis/proximity"
 import type { LiveMotionSource } from "@/api/liveMotionSource"
 import { startTransition, useEffect, useRef, useState } from "react"
 
@@ -1443,8 +1444,11 @@ export function buildTacticalEvents(
 
   const events = new Map<number, TacticalEventPoint>()
   const nativeEvents = new Map<number, RealtimeMomentumEvent>()
+  // Fork: same closest-opponent annotation as HistoricalDerivations (analysis/proximity.ts).
+  const proximity = new ProximityTracker()
   for (let index = 0; index <= end; index += 1) {
     const frame = frames[index]
+    proximity.appendFrame(frame)
     const halfWidth = validPitchHalf(frame.halfPitchWidth)
     const halfLength = validPitchHalf(frame.halfPitchLength)
     if (!halfWidth || !halfLength) continue
@@ -1509,7 +1513,7 @@ export function buildTacticalEvents(
         halfLength
       )
       const displayTick = nativeMomentumEventDisplayTick(frame, item)
-      events.set(item.sequenceIndex, {
+      events.set(item.sequenceIndex, proximity.annotate({
         id: `${frame.matchId}-native-momentum-${item.sequenceIndex}`,
         metricId,
         metricIds,
@@ -1545,7 +1549,7 @@ export function buildTacticalEvents(
         sequenceIndex: item.sequenceIndex,
         completionTick: item.completionTick,
         annotations: nativeMomentumEventAnnotations(item),
-      })
+      }, item, events.get(item.sequenceIndex))!)
     }
   }
 

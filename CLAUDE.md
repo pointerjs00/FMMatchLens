@@ -21,10 +21,15 @@ O dono joga FM27 em português (Benfica). Responde e escreve textos de interface
     posição (quartis por 90' de 281 atuações dos jogos de `samples/`) e com a quota nos totais da equipa.
   - `opponent.ts` — adversário: confrontos de atributos (velocidade, 1x1, jogo aéreo, concentração; o lado direito deles
     defende o nosso corredor esquerdo), amarelados/cansados, saída de bola frágil, hábitos (altura do bloco, perdas atrás).
+  - `proximity.ts` — adversário mais próximo de quem fez cada evento, no tick do evento (posições dos frames, últimos 2
+    min). Ligado em `HistoricalDerivations` (upstream, 6 linhas) e no oráculo `buildTacticalEvents`; fica em
+    `TacticalEventPoint.nearestOpponentId/Distance`. Distâncias medidas: aéreos 0,4 m, desarmes 1 m, dribles 2,5–3 m.
   - `matchups.ts` — quem enfrenta quem em campo: sobreposição dos mapas de calor por jogador (nosso com bola × deles sem
-    bola, zonas 8×12) e duelos por zona (dribles/perdas/aéreos nossos, desarmes/interceções deles, atribuídos ao
-    adversário frente a frente mais presente na zona do evento). Usado por `opponent.ts` (confirma ou contraria vantagens
-    de atributos).
+    bola, zonas 8×12) e duelos com o adversário mais próximo dentro de um limite por tipo (drible ≤ 5 m, perda ≤ 3 m,
+    aéreo ≤ 2 m, desarme/interceção ≤ 3 m); sem essa anotação, recorre à zona. Usado por `opponent.ts`.
+  - `opponentChanges.ts` — o que a IA mudou: formação e papéis (histórico de formações, só ao vivo), substituições
+    (ofensiva/defensiva) e altura do bloco nos últimos 15' (só ≥ 14 pontos: p90 da variação normal nos 9 jogos).
+  - `SuggestionRecorder.tsx` — montado pela App com o painel fechado num jogo ao vivo; regista as sugestões a cada minuto.
   - `suggestions.ts` — lê de volta as sugestões do painel como alterações concretas, compara-as com as alterações gravadas
     (seguida / iniciativa tua), regista ao vivo o que o painel mostrou (`localStorage`) e, em "Vários jogos", reconstrói as
     sugestões no minuto de cada alteração e agrega o efeito por regra.

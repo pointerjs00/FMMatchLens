@@ -118,6 +118,11 @@ const AnalysisDrawer = lazy(() =>
     default: module.AnalysisDrawer,
   }))
 )
+const SuggestionRecorder = lazy(() =>
+  import("@/features/analysis/SuggestionRecorder").then((module) => ({
+    default: module.SuggestionRecorder,
+  }))
+)
 const SpatialMapPanel = lazy(() =>
   import("@/components/SpatialMapPanel").then((module) => ({
     default: module.SpatialMapPanel,
@@ -1116,6 +1121,12 @@ export function App() {
           </motion.div>
         </MotionConfig>
       </Suspense>
+      {/* Fork: while the analysis drawer is closed, keep logging what it would suggest (live matches only). */}
+      {!analysisOpen && liveConnectionEnabled && backendUrl && (
+        <Suspense fallback={null}>
+          <SuggestionRecorder match={match} apiBase={backendUrl} />
+        </Suspense>
+      )}
       {analysisOpen && (
         <Suspense fallback={null}>
           <AnalysisDrawer

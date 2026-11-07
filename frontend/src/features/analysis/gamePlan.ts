@@ -78,6 +78,9 @@ export function comebackPlan(
   }
   const reading: string[] = [`xG ${dec(metrics.xg)} – ${dec(theirMetrics.xg)}`, `Remates ${metrics.shots} – ${theirMetrics.shots}`]
   for (const shot of goalsAgainstShots) reading.push(`Golo sofrido aos ${shot.minute}' (${scorerName(shot.playerId)}): remate de ${dec(shot.xg)} xG`)
+  // What the opponent changed recently: the reading of the match may be out of date since then.
+  for (const change of opponent.changes.filter((item) => item.minute >= minute - 15))
+    reading.push(`${analysis.opponentName} aos ${change.minute}': ${change.title.charAt(0).toLowerCase()}${change.title.slice(1)}`)
   steps.push({
     id: "reading",
     title: deserved ? "A exibição é melhor do que o resultado" : outplayed ? "O adversário merece estar à frente" : "Jogo equilibrado, resultado contra",

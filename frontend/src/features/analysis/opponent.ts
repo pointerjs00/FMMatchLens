@@ -10,6 +10,7 @@ import {
 } from "@/features/analysis/tacticProfile"
 import { teamPerformance, type TeamPerformance } from "@/features/analysis/playerImpact"
 import { duelBalance, duelSummary, fieldMatchups, type FieldMatchups } from "@/features/analysis/matchups"
+import { opponentChanges, type OpponentChange } from "@/features/analysis/opponentChanges"
 
 /**
  * What the opponent gives away: its players who are having a bad game, attribute match-ups our players
@@ -39,6 +40,8 @@ export type OpponentReport = {
   performance: TeamPerformance
   exploits: Exploit[]
   tendencies: Exploit[]
+  /** What the opponent changed during the match (formation, roles, substitutions, block). */
+  changes: OpponentChange[]
 }
 
 /** Height of the defensive actions (% of the pitch): p25 of the calibration matches. */
@@ -328,6 +331,7 @@ export function opponentReport(
     performance,
     exploits: exploits.sort((x, y) => y.weight - x.weight),
     tendencies: opponentTendencies(match, profile, metrics, opponentMetrics),
+    changes: opponentChanges(match, side),
   }
 }
 
@@ -381,7 +385,7 @@ function duelExploits(
   if (minute < duelMinutes) return []
   const out: Exploit[] = []
   const covered = new Set(existing.flatMap((exploit) => exploit.ourPlayerIds.map((id) => `${id}:${exploit.theirPlayerIds[0]}`)))
-  for (const pair of field.pairs) {
+  for (const pair of field.duelPairs) {
     if (covered.has(`${pair.attackerId}:${pair.defenderId}`)) continue
     const attacker = match.players.find((player) => player.id === pair.attackerId && player.team === side && player.isOnPitch)
     const defender = match.players.find((player) => player.id === pair.defenderId && player.isOnPitch)
@@ -390,9 +394,9 @@ function duelExploits(
     const zone = defenderZone(defender)
     const flank = zone && zone !== "centre" ? zone : undefined
     const evidence = [
-      `Em campo: partilham ${Math.round(pair.overlap * 100)}% das zonas quando tens a bola`,
+      pair.overlap > 0 ? `Em campo: partilham ${Math.round(pair.overlap * 100)}% das zonas quando tens a bola` : "",
       `Duelos: ${duelSummary(pair.duels)}`,
-    ]
+    ].filter(Boolean)
     const attackerName = playerLabel(attacker)
     const defenderName = playerLabel(defender)
     const where = slotLabel(defender.outOfPossession?.position ?? defender.inPossession?.position)
@@ -401,7 +405,7 @@ function duelExploits(
         id: `duel-won.${attacker.id}.${defender.id}`,
         tone: "good",
         title: `${attackerName} está a ganhar os duelos a ${defenderName}`,
-        detail: `Nas zonas onde ${defenderName} (${where}) defende, ${attackerName} tem ${wins} duelo(s) ganho(s) e ${losses} perdido(s). Vale a pena dar-lhe mais bola.`,
+        detail: `Frente a ${defenderName} (${where}), ${attackerName} tem ${wins} duelo(s) ganho(s) e ${losses} perdido(s). Vale a pena dar-lhe mais bola.`,
         evidence,
         actions: [
           flank ? teamAction(profile, "progressThrough", progressValue[flank]) : "",
@@ -418,7 +422,7 @@ function duelExploits(
         id: `duel-lost.${attacker.id}.${defender.id}`,
         tone: "warning",
         title: `${defenderName} está a anular ${attackerName}`,
-        detail: `Nas zonas de ${defenderName} (${where}), ${attackerName} perdeu ${pair.duels.lost} bolas e só ganhou ${wins} duelo(s); ${defenderName} fez ${pair.duels.defensive} desarme(s)/interceção(ões).`,
+        detail: `Com ${defenderName} (${where}) em cima, ${attackerName} perdeu ${pair.duels.lost} bolas e só ganhou ${wins} duelo(s); ${defenderName} fez ${pair.duels.defensive} desarme(s)/interceção(ões).`,
         evidence,
         actions: [
           dribbles ? `Tirar "${playerInstructionLabels.dribbleMore}" a ${attackerName}: está a perder os 1x1.` : "",
